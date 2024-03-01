@@ -20,23 +20,21 @@ root/
        - readme.md 
      - LIME/
         - LIME_basic/
-           - src/
-           - readme.md 
-     - LIME_robotics/
-       - src/
-       - readme.md 
+        - LIME_robotics/
      - readme.md
   - data_generator/
      - image_data/
         - images_basic/
         - images_robotics/ 
-    - structured_data/
-      - src/
-    - readme.md 
+     - structured_data/
+        - src/
+        - readme.md 
   - user_study/
-    - descriptive_analysis/
-    - statistical_analysis/
-    - readme.md 
+     - descriptive_analysis/
+        - Deskriptive_Auwertung.xlsx 
+     - statistical_analysis/
+        - ... 
+     - readme.md 
 
 **Overview**
 
