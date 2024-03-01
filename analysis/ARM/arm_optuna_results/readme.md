@@ -1,5 +1,5 @@
 ## About
-This repository contains the data and results of the experiments with the method based on association rule mining.
+Here you will find the results of the experiments with the method based on Association Rule Mining. The content is published in [6].
 
 ## Description
 Our approach evaluates different algorithms applied on the designed use cases: FP-Growth (fpg) [1], GARPlus (garplus) [2], HyperClique (hycli) [3], Quantitative Miner (quant) [4].
@@ -29,3 +29,5 @@ We want to thank Josef Würf from the University of Bayreuth for setting up the i
 [4] Srikant, Ramakrishnan, and Rakesh Agrawal. "Mining quantitative association rules in large relational tables." Proceedings of the 1996 ACM SIGMOD international conference on Management of data. 1996.
 
 [5] Akiba, Takuya, et al. "Optuna: A next-generation hyperparameter optimization framework." Proceedings of the 25th ACM SIGKDD international conference on knowledge discovery & data mining. 2019.
+
+[6] Myriel Fichtner and Stefan Jablonski (2024)." Applying Association Rules to Enhance Process Models through the Extraction of Relevant Process Details from Image Data.", Communications of the IBIMA, Vol. 2024, Article ID 172169, https://doi.org/10.5171/2024.172169. 2024.
