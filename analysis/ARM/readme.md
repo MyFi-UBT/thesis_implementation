@@ -23,7 +23,8 @@ These can for example be opened by using the free-to-use software "DB Browser fo
 Detailed results can be queried by using SQL Statements.
 
 ## Acknowledgements
-We want to thank Josef Würf from the University of Bayreuth for setting up the implementation and supporting the evaluation of our work.
+We want to thank Josef Würf from the University of Bayreuth for setting up the implementation and supporting the evaluation of our work (https://github.com/JosWrf/rule_ mining_algs
+).
 
 ## References
 [1] Han, Jiawei, Jian Pei, and Yiwen Yin. "Mining frequent patterns without candidate generation." ACM sigmod record 29.2 (2000): 1-12.

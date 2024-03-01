@@ -1,7 +1,11 @@
 # Computes rules for a fixed hyper parameter set defined in "parameter_scripts/parameter.json"
+
 # Standalone function, .i.e. does neither need arm_model_builder nor hyperparameter_optimization_scenarioX.py. just
 # needs the json-file where the parameters are defined. All variants of a scenario are calculated, i.e.,
 # four variants are computed for scenario 1 and two variant are computed for scenario 2
+
+# Oriented at https://github.com/JosWrf/rule_ mining_algs
+
 
 import datetime
 import os
