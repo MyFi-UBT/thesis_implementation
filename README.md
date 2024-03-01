@@ -2,7 +2,7 @@ Code for the thesis "Verbesserung von Prozessmodellen durch relevante Prozessdet
 --
 **Project Description**
 
-This repository contains the code referring to chapter 4 and 5 of the thesis.
+This repository contains the code referring to chapter 4, 5 and 6 of the thesis.
 The code encompasses two methods to analyze relevant process details from execution data. The implemented methods use the techniques association rule mining (ARM) and Local-Interpretable Model Agnostic Explanations (LIME).
 Data generators are provided to enable the use of synthetical data for the evaluation.
 Furthermore, the user study results and the used evaluation script are provided.
