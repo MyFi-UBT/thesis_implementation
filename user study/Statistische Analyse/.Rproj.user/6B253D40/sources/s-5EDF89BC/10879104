@@ -1,0 +1,31 @@
+{
+    "id": "10879104",
+    "path": "C:/Users/sehlbred/Desktop/Skript Intuition/Skritp Intuition.Rmd",
+    "project_path": "Skritp Intuition.Rmd",
+    "type": "r_markdown",
+    "hash": "0",
+    "contents": "",
+    "dirty": false,
+    "created": 1654848028665.0,
+    "source_on_save": false,
+    "relative_order": 1,
+    "properties": {
+        "tempName": "Untitled1",
+        "source_window_id": "",
+        "Source": "Source",
+        "cursorPosition": "1409,0",
+        "scrollLine": "1406",
+        "chunk_output_type": "console",
+        "docOutlineVisible": "1",
+        "rmdVisualCollapsedChunks": "",
+        "last_setup_crc32": "5EDF89BC970a23ee"
+    },
+    "folds": "313|19|590|3|\n804|20|837|0|\n873|40|939|0|\n894|20|927|0|\n940|53|1050|3|\n1051|54|1165|3|\n",
+    "lastKnownWriteTime": 1654963955,
+    "encoding": "UTF-8",
+    "collab_server": "",
+    "source_window": "",
+    "last_content_update": 1654963955363,
+    "read_only": false,
+    "read_only_alternatives": []
+}

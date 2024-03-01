@@ -1,0 +1,2415 @@
+---
+title: "TK Coach Survey Monitoring"
+author: "Matthias Sehlbrede"
+date: "Stand (Skript): 2020-11-18"
+output: 
+  html_document:
+      code_folding: hide
+      toc: true
+      toc_float:
+        collapsed: false
+editor_options: 
+  chunk_output_type: console
+---
+
+
+```{r setup, include=FALSE}
+
+suppressPackageStartupMessages(if(!require(pacman)) { install.packages("pacman") })
+pacman::p_load(knitr, kableExtra, dplyr, tidyr, ggplot2, readxl, DT, Hmisc, cowplot, ggridges, lubridate, stringr)
+
+
+knitr::opts_chunk$set(echo = F, warning = F)
+options(knitr.kable.NA = "", dplyr.summarise.inform = F)
+```
+
+```{r own functions}
+plotting <- function(x, gz, mzp, study, labeldata) {
+  
+  label_data <- labeldata %>% 
+    filter(GZ == gz) %>% 
+    filter(MZP == mzp)
+
+  if(study == "Gesamt") {
+    x <- x %>%
+      filter(Status == "geschlossene FB") %>%
+      filter(GZ == gz) %>%
+      filter(IG_KG == "Alle Fälle") %>%
+      filter(Label != "versendete Ankündigungen") %>%
+      filter(MZP == mzp) %>%
+      mutate(n = ifelse(is.na(n), 0, n)) %>%
+      filter(Datum > as.Date("2020-08-01")) %>%
+      mutate(Label = factor(Label, ordered = T,
+                            levels = c("gesperrt ohne Aufruf",
+                                       "gesperrt mit Aufruf",
+                                       "abgebrochen",
+                                       "nicht gestartet",
+                                       "offene Ankündigung",
+                                       "beendet"))) %>%
+      mutate(n_akt = ifelse(Datum != max(Datum), NA, n))
+  } else {
+    x <- x %>% 
+      filter(Status == "geschlossene FB") %>% 
+      filter(GZ == gz) %>% 
+      filter(Studie == study) %>%  
+      filter(Label != "versendete Ankündigungen") %>%
+      filter(MZP == mzp) %>% 
+      mutate(n = ifelse(is.na(n), 0, n)) %>%
+      filter(Datum > as.Date("2020-08-01")) %>%
+      mutate(Label = factor(Label, ordered = T,
+                            levels = c("gesperrt ohne Aufruf",
+                                       "gesperrt mit Aufruf",
+                                       "abgebrochen",
+                                       "nicht gestartet",
+                                       "offene Ankündigung",
+                                       "beendet"))) %>%
+      dplyr::select(-cond) %>% 
+      group_by(Messung, Datum, GZ, Studie, Status, Label, MZP) %>%  
+      summarise(n = sum(n)) %>%
+      mutate(n_akt = ifelse(Datum != max(Datum), NA, n))
+    } 
+  
+  ggplot(x, aes(x = Datum, y = n, fill = Label)) +
+    facet_wrap(~ MZP) +
+    geom_area() +
+    scale_x_date(date_labels = "%d/%m",
+                 breaks = function(x) seq.Date(from = as.Date("2020-08-02"), 
+                                               to = max(x), by = "4 days"),
+                 date_minor_breaks = "4 day",
+                 expand = c(0, 1)) +
+    scale_y_continuous(limits = c(0, sum(label_data$n) + 250)) +
+    scale_fill_manual(values = c("#CC6633",    #gesperrt ohne Aufruf
+                                 "#FFCC00",    #geperrt mit Aufruf
+                                 "#FF3300",    #abgebrochen
+                                 "#CCCCCC",    #nicht gestartet
+                                 "#00CC66",    #offene Ankündigung
+                                 "#00FF00"),   #beendet
+                      labels = c(label_data$Label[4],
+                                 label_data$Label[3],
+                                 label_data$Label[1],
+                                 label_data$Label[5],
+                                 label_data$Label[6],
+                                 label_data$Label[2])) +
+    theme_bw() +
+    theme(axis.text = element_text(size = 12, color = "black"),
+          axis.text.x = element_text(angle = 45, vjust = 0.5),
+          axis.title = element_text(size = 13, color = "black"),
+          strip.text = element_text(size = 14, color = "black"),
+          legend.text = element_text(size = 12, color = "black"),
+          legend.position = "right")
+}
+
+surveyfull <- function(Daten, Gesundheitsziel, Messzeitpunkt) {
+  # Daten = raw_survey
+  # Gesungheitsziel = "AC", "FC", "NC",
+  # Messzeitpunkt = "t1", "t2", "t3
+  
+  gz <- Gesundheitsziel
+  mzp <- Messzeitpunkt
+  
+  surveydat <- lapply(Daten, function(x) {
+    
+    x <- x %>%
+      filter(GZ == gz) %>% 
+      dplyr::select(Datum, Id, GZ, IG_KG, starts_with(mzp)) %>% 
+      gather(., cond, val, -Datum, -Id, -GZ, -IG_KG) %>%
+      mutate(cond = gsub("t[[:digit:]]_", "", cond)) %>%
+      pivot_wider(names_from = cond, values_from = val) %>%
+      filter(!is.na(IG_KG)) %>%
+      mutate_at(vars(-Id, -GZ, -IG_KG, -Datum), function(x) {ifelse(is.na(x), 0, x)}) %>%
+      mutate(b = ifelse(beendet == 1, 1, 0),
+             g = ifelse(begonnen == 0 & gesperrt == 1 | begonnen == 1 & beendet == 0 & gesperrt == 1, 1, 0),
+             ng = ifelse(Ankündigung_versendet == 1 & begonnen == 0 & gesperrt == 0, 1, 0),
+             a = ifelse(begonnen == 1 & beendet == 0 & gesperrt == 0, 1, 0),
+             ok = ifelse(Ankündigung_offen == 1, 1, 0)) %>%
+      # Fälle die keinerlei Einträge haben werden als Abgemeldete gehandelt
+      mutate(abmeldung = b+g+ng+a+ok) %>%
+      mutate(abmeldung = ifelse(abmeldung == 0, 1, 0)) %>%
+      # Wochenweise Abmeldungen kodieren
+      mutate(a_0w = ifelse(a == 1 & Tage_verstrichen < 14, 1, 0),
+             a_2w = ifelse(a == 1 & Tage_verstrichen >= 14 & Tage_verstrichen <= 41, 1, 0),
+             a_6w = ifelse(a == 1 & Tage_verstrichen >= 42, 1, 0),
+             ng_0w = ifelse(ng == 1 & Tage_verstrichen < 14, 1, 0),
+             ng_2w = ifelse(ng == 1 & Tage_verstrichen >= 14 & Tage_verstrichen <= 41, 1, 0),
+             ng_6w = ifelse(ng == 1 & Tage_verstrichen >= 42, 1, 0)) %>%
+      # Alle die bereits offiziell Abgemeldet sind direkt rausfiltern
+      filter(abmeldung == 0) %>%
+      # Alle offenen Ankündigen rausfiltern
+      filter(ok != 1) %>%
+      dplyr::select(Datum, Id, GZ, IG_KG, b, g, starts_with("a_"), starts_with("ng_")) %>%
+      gather(., kategorie, status, -Datum, -Id, -GZ, -IG_KG) %>%
+      # aktuellen Status der Person wählen
+      filter(status == 1) %>%
+      mutate_at(vars(-Datum), function(x) {as.character(x) }) %>%
+      mutate(Datum = as.Date(Datum))
+    
+  })
+  
+  surveydat <- do.call("bind_rows", surveydat)
+  
+  surveydat$kategorie <- factor(surveydat$kategorie,
+                                levels = c("a_0w", "a_2w", "a_6w", "b", "g", 
+                                           "ng_6w", "ng_2w", "ng_0w"))
+  surveydat$Monat <- format(as.POSIXct(surveydat$Datum), "%B")
+  surveydat$Woche <- isoweek(surveydat$Datum)
+  
+  survey_aslist <- surveydat %>%
+    dplyr::select(-status) %>%
+    dplyr::select(-Monat) %>%
+    mutate(auswahl = case_when(Datum == as.Date("2020-09-02") & kategorie == "b" ~ 1,
+                               Datum == as.Date("2020-09-02") & kategorie == "g" ~ 1,
+                               TRUE ~ 0)) %>%
+    filter(auswahl == 0) %>%
+    group_by(Woche) %>%
+    group_split()
+  
+  survey_change <- survey_aslist %>%
+    lapply(., function(x) {
+      x <- x %>%
+        mutate(Datum = gsub("-", "_", Datum)) %>%
+        mutate(auswahl = case_when(Datum == min(Datum) & kategorie == "b" ~ 1,
+                                   Datum == min(Datum) & kategorie == "g" ~ 1,
+                                   TRUE ~ 0)) %>%
+        filter(auswahl == 0) %>%
+        pivot_wider(names_from = Datum, values_from = kategorie, names_prefix = "x") %>%
+        dplyr::select(-Woche, -auswahl) })
+  
+  x <- survey_change[lengths(survey_change) < 5]
+  if (length(x) > 0) {
+    x <- x[[1]]
+    x <- names(x)[4]
+    x <- gsub("x", "", x)
+    x <- gsub("_", "-", x)
+    surveydat$Datum <- as.character(surveydat$Datum)
+    surveydat <- surveydat %>% filter(Datum != x)
+  }
+  
+
+  
+  # Nur die Wochen auswählen, die in der Liste mehr als 2 Tage haben.
+  # Grundlänge eines Datensatzes ist 3, jeder Tag vergrößert den Datensatz um 1
+  # man braucht also einen Datensatz der Länge 5, damit eine Differenz bestimmt werden kann.
+
+  survey_change <- survey_change[lengths(survey_change)>4]
+  
+  
+  survey_change <- survey_change %>%
+    lapply(., function(x) {
+
+
+      x <- as.data.frame(table(x[,grepl("^x", names(x))])) %>%
+        mutate(Id = rownames(.))
+
+      x <- x %>% unite("Kategorie", grep("^x", names(.)), sep = ".", remove = F)
+
+      x <- x %>%
+        mutate(first = sub("\\..*", "", Kategorie),
+               last = str_extract(Kategorie, "[[:alnum:]]+_[[:alnum:]]+$|[[:alnum:]]+$")) %>%
+        mutate(Kategorie = case_when(
+          first == "ng_0w" & last == "ng_0w" ~ "Kein Wechsel ng +0w",
+          first == "ng_2w" & last == "ng_2w" ~ "Kein Wechsel ng +2w",
+          first == "ng_6w" & last == "ng_6w" ~ "Kein Wechsel ng +6w",
+
+          first == "ng_0w" & last == "ng_2w" ~ "Wechsel ng 0w in 2w",
+          first == "ng_2w" & last == "ng_6w" ~ "Wechsel ng 2w in 6w",
+
+          first == "ng_0w" & last == "b" ~ "Wechsel ng 0w in beendet",
+          first == "ng_2w" & last == "b" ~ "Wechsel ng 2w in beendet",
+          first == "ng_6w" & last == "b" ~ "Wechsel ng 6w in beendet",
+          first == "ng_6w" & last == "g" ~ "Wechsel ng 6w in gesperrt",
+
+          first == "a_0w" & last == "a_0w" ~ "Kein Wechsel a +0w",
+          first == "a_2w" & last == "a_2w" ~ "Kein Wechsel a +2w",
+          first == "a_6w" & last == "a_6w" ~ "Kein Wechsel a +6w",
+
+          first == "a_0w" & last == "a_2w" ~ "Wechsel a 0w in 2w",
+          first == "a_2w" & last == "a_6w" ~ "Wechsel a 2w in 6w",
+
+          first == "a_0w" & last == "b" ~ "Wechsel a 0w in beendet",
+          first == "a_2w" & last == "b" ~ "Wechsel a 2w in beendet",
+          first == "a_6w" & last == "b" ~ "Wechsel a 6w in beendet",
+          first == "a_6w" & last == "g" ~ "Wechsel a 6w in gesperrt"
+        )) %>%
+        mutate(wechsel = ifelse(grepl("Kein", Kategorie), "Nein", "Ja")) %>%
+        mutate(status = case_when(grepl("Kein", Kategorie) ~ "Noch Potential",
+                                  wechsel == "Ja" & grepl("beendet", Kategorie) ~ "Beendet",
+                                  wechsel == "Ja" & grepl("gesperrt", Kategorie) ~ "Gesperrt",
+                                  TRUE ~ "Noch Potential"))
+
+      x <- na.omit(x)
+
+    })
+
+  # Summenwerte bestimmen
+  survey_change <- lapply(survey_change, function(x) {
+
+    x %>% group_by(Kategorie) %>% summarise(Sum = sum(Freq))
+
+  })
+
+  # Kalenderwoche hinzufügen
+  survey_change <- cbind(do.call("bind_rows", survey_change),
+                         data.frame(week = sort(rep(unique(isoweek(surveydat$Datum)), 18))))
+  survey_change <- survey_change %>%
+    mutate(week = paste(week, ". Kalenderwoche", sep = ""))
+
+
+  # Kategorienwechsel einteilen
+  survey_change <- survey_change %>%
+    mutate(wechsel = ifelse(grepl("Kein", Kategorie), "Nein", "Ja")) %>%
+    mutate(status = case_when(grepl("Kein", Kategorie) ~ "Potential",
+                              wechsel == "Ja" & grepl("beendet", Kategorie) ~ "Beendet",
+                              wechsel == "Ja" & grepl("gesperrt", Kategorie) ~ "Gesperrt",
+                              TRUE ~ "Potential"))
+  # Kategorien sortieren
+  survey_change$status <- factor(survey_change$status,
+                                 levels = c("Potential", "Gesperrt", "Beendet"),
+                                 ordered = T)
+  survey_change
+  
+}
+
+```
+
+
+```{r data import}
+
+# Excel-Tabelle mit Survey-Daten ####
+survey_progress <- readxl::read_xlsx("Survey_Progess_Uebersicht_ab2020_08_14.xlsx", sheet = 2)
+
+
+# Rohdaten des Survey einlesen ####
+read_survey <- function(speicherort = getwd()) {
+  
+  setwd(speicherort)
+  
+  survey_files <- list.files(path = speicherort, 
+                             pattern = "survey_progress_", recursive = T)
+  
+  survey_list <- lapply(survey_files, function(x) {
+    # Daten einlesen, Textformat umformen wegen umlaute
+    read.csv2(x, encoding = "UTF-8") %>% 
+      # umbenennen relevanter Variablen
+      rename(Id = contains("Teilnehmer.ID"),
+             GZ = Gesundheitsziel,
+             IG_KG = Studiengruppe) %>%
+      # Datumsvariable erstellen anhand des Datums im Namen der Excel-Datei
+      mutate(Datum = stringr::str_extract(x, "[[:digit:]]{4}-[[:digit:]]{2}-[[:digit:]]{2}"))
+    })
+}
+
+raw_survey <- read_survey()
+
+# Zuordnungen der Med. Teilstudie einlesen ####
+
+.med_Id <- list.files(path = getwd(),
+           pattern = "Teilstudie_Freischaltung",
+           recursive = T)
+
+.med_AC_Id <- read_xlsx(.med_Id[[1]])
+.med_FC_Id <- read_xlsx(.med_Id[[2]])
+
+.med.studie_Ids <- rbind(.med_AC_Id[,1:3], 
+                         .med_FC_Id[,1:3]) %>% 
+  # filter(Status == "eingeschlossen") %>% 
+  dplyr::select(Id = "Online-ID") %>% 
+  mutate(Studie = "Med. Teilstudie")
+
+```
+<h4> Datengrundlage: Survey-Monitoring vom `r max(as.Date(survey_progress$Datum))` </h4>
+
+
+```{r}
+
+mntl_change <- survey_progress %>% 
+  mutate(Datum = as.Date(Datum)) %>% 
+  # Erste Messung sowie alle Monatsende (letzte Messungen werden benötigt)
+  filter(grepl("-30", Datum) | Datum == as.Date("2020-02-28") | Datum == as.Date("2020-01-02")) %>%
+  dplyr::select(Datum, contains("_rnd")) %>%
+  # lagged variablen erstellen: Vormonat wird gelaggt
+  mutate(AC_A_lag = lag(AC_rnd_A),
+         AC_M_lag = lag(AC_rnd_M),
+         AC_A_I_lag = lag(AC_I_rnd_A),
+         AC_M_I_lag = lag(AC_I_rnd_M),
+         AC_A_K_lag = lag(AC_K_rnd_A),
+         AC_M_K_lag = lag(AC_K_rnd_M),
+         FC_A_lag = lag(FC_rnd_A),
+         FC_M_lag = lag(FC_rnd_M),
+         FC_A_I_lag = lag(FC_I_rnd_A),
+         FC_M_I_lag = lag(FC_I_rnd_M),
+         FC_A_K_lag = lag(FC_K_rnd_A),
+         FC_M_K_lag = lag(FC_K_rnd_M),
+         NC_A_lag = lag(NC_rnd_A),
+         NC_A_K_lag = lag(NC_K_rnd_A),
+         NC_A_I_lag = lag(NC_I_rnd_A)) %>%
+  # Differenzen für den Monat berechnen.
+  # Die Differenz stellt den Anstieg/Veränderung innerhalb eines Monats dar
+  mutate(AC_A_diff = AC_rnd_A - AC_A_lag,
+         AC_M_diff = AC_rnd_M - AC_M_lag,
+         AC_A_I_diff = AC_I_rnd_A - AC_A_I_lag,
+         AC_M_I_diff = AC_I_rnd_M - AC_M_I_lag,
+         AC_A_K_diff = AC_K_rnd_A - AC_A_K_lag,
+         AC_M_K_diff = AC_K_rnd_M - AC_M_K_lag,
+         FC_A_diff = FC_rnd_A - FC_A_lag,
+         FC_M_diff = FC_rnd_M - FC_M_lag,
+         FC_A_I_diff = FC_I_rnd_A - FC_A_I_lag,
+         FC_M_I_diff = FC_I_rnd_M - FC_M_I_lag,
+         FC_A_K_diff = FC_K_rnd_A - FC_A_K_lag,
+         FC_M_K_diff = FC_K_rnd_M - FC_M_K_lag,
+         NC_A_diff = NC_rnd_A - NC_A_lag,
+         NC_A_I_diff = NC_I_rnd_A - NC_A_I_lag,
+         NC_A_K_diff = NC_K_rnd_A - NC_A_I_lag) %>%
+  dplyr::select(Datum, ends_with("diff"))
+```
+
+
+# Anmeldungen und Randomisierungen {.tabset}
+
+Anzahl der registrierten Teilnehmer nach Gesundheitsziel und ihre Verteilung in den Studiengruppen Intervention (I) und Kontroll (K), sowie der Verteilung innerhalb der Randomisierungslisten der allgemeinen Online-Studie (A) und der medizinischen Teilstudie (M).
+
+Gezählt werden alle Teilnehmer, die die Registrierungsmail bestätigt haben und nicht als Testnutzer markiert sind. Desweiteren werden hier auch Teilnehmer gezählt, die sich bereits wieder von der Studien oder dem Coaching abgemeldet haben. Die Verteilung der abgemeldeten Teilnehmer ist unter Abmeldungen aufgeschlüsselt. 
+
+## Allgemeine Onlinestudie
+
+```{r, fig.width=10, fig.height=6}
+
+.aktuell_reg <- as.vector(unlist(survey_progress[nrow(survey_progress), grepl("C_rnd_A", names(survey_progress))]))
+
+
+survey_progress %>% 
+  dplyr::select(Datum, contains("rnd_A")) %>% 
+  gather(., cond, val, -Datum) %>% 
+  mutate(GZ = gsub("_.*", "", cond),
+         IG_KG = case_when(grepl("_I_", cond) ~ "IG",
+                           grepl("_K_", cond) ~ "KG",
+                           grepl("n_rnd", cond) ~ "Nicht Zugewiesen",
+                           TRUE ~ "Gesamt"),
+         SP = case_when(grepl("_A", cond) ~ "Allgemeine Onlinestudie",
+                        grepl("_M", cond) ~ "Medizinische Teilstudie")) %>% 
+  filter(IG_KG == "Gesamt") %>% 
+  mutate(Datum = as.Date(Datum)) %>% 
+  ggplot(., aes(x = Datum, y = val)) +
+  facet_wrap(~ paste("Anzahl der Randomisierungen nach Gesundheitsziel - Stand:", max(as.Date(survey_progress$Datum)))) +
+  geom_point(aes(color = GZ)) +
+  geom_line(aes(group = GZ, color = GZ)) +
+  scale_x_date(date_labels = "%d/%m",
+               breaks = function(x) seq.Date(from = as.Date("2020-01-02"), to = max(x), by = "12 days"), 
+               date_minor_breaks = "1 day",
+               expand = c(0, 1)) +
+  scale_color_manual(values = c("red", "darkgreen", "blue")) +
+  scale_y_continuous(breaks = seq(0, 5000, 250), sec.axis = dup_axis(breaks = .aktuell_reg, 
+                                         name = "")) +
+  labs(y = "Häufigkeit",
+       x = "Datum (12-Tage-Rhythmus)",
+       color = "Gesundheitsziel") +
+  theme_bw() +
+  theme(axis.text = element_text(size = 12, color = "black"),
+        axis.text.x = element_text(angle = 45, hjust = 1),
+        axis.title = element_text(size = 13, color = "black"),
+        legend.text = element_text(size = 12, color = "black"),
+        legend.title = element_text(size = 13, color = "black"),
+        strip.text = element_text(size = 15, color = "black"),
+        legend.position = "bottom")
+
+```
+<br><font color = "grey">*Abbildung.* Anzahl der Randomisierungen in den drei Gesundheitszielen. Datumseintrag auf der x-Achse alle 12 Tage. </font><br><br>
+
+## Medizinische Teilstudie
+
+```{r, fig.width=10, fig.height=6}
+
+.aktuell_reg_MT <- as.vector(unlist(survey_progress[nrow(survey_progress), grepl("C_rnd_M", names(survey_progress))]))
+.aktuell_reg_MT <- as.vector(na.omit(.aktuell_reg_MT))
+
+survey_progress %>% 
+  dplyr::select(Datum, contains("rnd_M")) %>%
+  gather(., cond, val, -Datum) %>% 
+  mutate(GZ = gsub("_.*", "", cond),
+         IG_KG = case_when(grepl("_I_", cond) ~ "IG",
+                           grepl("_K_", cond) ~ "KG",
+                           grepl("n_rnd", cond) ~ "Nicht Zugewiesen",
+                           TRUE ~ "Gesamt"),
+         SP = case_when(grepl("_A", cond) ~ "Allgemeine Onlinestudie",
+                        grepl("_M", cond) ~ "Medizinische Teilstudie")) %>%
+  filter(SP == "Medizinische Teilstudie") %>%
+  filter(GZ != "NC") %>% 
+  group_by(Datum, cond, GZ, SP) %>% 
+  summarise(val = sum(val, na.rm = T)) %>%
+  ungroup() %>% 
+  filter(!grepl("_I_|_K_", cond)) %>% 
+  mutate(Datum = as.Date(Datum)) %>% 
+  filter(Datum > as.Date("2020-08-02")) %>% 
+  ggplot(., aes(x = Datum, y = val)) +
+  facet_wrap(~ paste("Anzahl der Randomisierungen nach Gesundheitsziel - Stand:", max(as.Date(survey_progress$Datum)))) +
+  geom_point(aes(color = GZ)) +
+  geom_line(aes(group = GZ, color = GZ)) +
+  scale_x_date(date_labels = "%d/%m",
+               breaks = function(x) seq.Date(from = as.Date("2020-01-02"), to = max(x), by = "12 days"), 
+               date_minor_breaks = "1 day",
+               expand = c(0, 1)) +
+  scale_color_manual(values = c("red", "darkgreen")) +
+  scale_y_continuous(breaks = seq(0, 500, 25), sec.axis = dup_axis(breaks = .aktuell_reg_MT, 
+                                         name = "")) +
+  labs(y = "Häufigkeit",
+       x = "Datum (12-Tage-Rhythmus)",
+       color = "Gesundheitsziel") +
+  theme_bw() +
+  theme(axis.text = element_text(size = 12, color = "black"),
+        axis.text.x = element_text(angle = 45, hjust = 1),
+        axis.title = element_text(size = 13, color = "black"),
+        legend.text = element_text(size = 12, color = "black"),
+        legend.title = element_text(size = 13, color = "black"),
+        strip.text = element_text(size = 15, color = "black"),
+        legend.position = "bottom")
+
+```
+<br><font color = "grey">*Abbildung.* Anzahl der Randomisierungen in den drei Gesundheitszielen. Datumseintrag auf der x-Achse alle 12 Tage. </font><br><br>
+
+
+
+## Monatliche Veränderungen
+
+Nachfolgend eine Visualisierung über die Veränderungen in den randomisierten Fallzahlen pro Monat. Es wird dabei die Differenz zwischen dem letzten Survey Monitoring eines Vormonats mit dem letzten Monitoring des neuen Monats verglichen. Die genaue Berechnung am Beispiel für den Anstieg in Februar:
+
+$$Anstieg_{Februar} = Randomisierte Fälle_{28.02.2020}-Randomisierte Fälle_{30.01.2020}$$
+Die Einzige Ausnahme stellt hier der MOnat Januar dar, hier wird die Differenz zwischen dem ersten Monitoring im Januar (02.01.2020) und dem letzten Monitoring im Januar (30.01.2020) angegeben. Durch diese Berechnung liegt für die meisten Monate eine leichte unschärfe vor, da der 31. eines Monats für den Folgemonat zählt. Würde immer die erste Messung des Monats genutzt, anstelle der letzten Messung des Vormonats, würde die Unschärfe größer werden, da dann zwei Tage nicht in der Berechnung berücksichtigt würden (jeweils der 31. und der 1. eines Monats).
+
+
+```{r, fig.width=10, fig.height=8}
+
+mntl_change %>% 
+  gather(., studie, change, -Datum) %>% 
+  # na.omit() %>% 
+  mutate(Datum = as.character(Datum)) %>% 
+  mutate(chng_between = case_when(Datum == "2020-01-30" ~ "Januar",
+                                  Datum == "2020-02-28" ~ "Februar",
+                                  Datum == "2020-03-30" ~ "März",
+                                  Datum == "2020-04-30" ~ "April",
+                                  Datum == "2020-05-30" ~ "Mai",
+                                  Datum == "2020-06-30" ~ "Juni",
+                                  Datum == "2020-07-30" ~ "Juli",
+                                  Datum == "2020-08-30" ~ "August",
+                                  Datum == "2020-09-30" ~ "September",
+                                  Datum == "2020-10-30" ~ "Oktober",
+                                  Datum == "2020-11-30" ~ "November",
+                                  Datum == "2020-12-30" ~ "Dezember")) %>%
+  # Formatierungen für die Grafik
+  mutate(chng_between = factor(chng_between,
+                               levels = c("Januar", "Februar", "März", "April",
+                                          "Mai", "Juni", "Juli", "August",
+                                          "September", "Oktober", "November",
+                                          "Dezember"), ordered = T),
+         GZ = case_when(grepl("AC_", studie) ~ "Abnehmen",
+                        grepl("FC_", studie) ~ "Fitness",
+                        grepl("NC_", studie) ~ "Nichtrauchen"),
+         IG_KG = case_when(grepl("_I_", studie) ~ "IG",
+                           grepl("_K_", studie) ~ "KG",
+                           TRUE ~ "Gesamt"),
+         Studie = case_when(grepl("_A_", studie) ~ "Allg. Onlinestudie",
+                            grepl("_M_", studie) ~ "Med. Teilstudie")) %>% 
+  filter(Datum != "2020-01-02") %>% 
+  filter(IG_KG == "Gesamt") %>% 
+  group_by(Datum, chng_between, GZ) %>% 
+  summarise(change = sum(change, na.rm = T)) %>%
+  mutate(yearhalf = case_when(chng_between == "Januar" | chng_between == "Februar" | chng_between == "März" | chng_between == "April" | chng_between == "Mai" | chng_between == "Juni" ~ "erstes Halbjahr 2020",
+                              TRUE ~ "zweites Halbjahr 2020")) %>% 
+  na.omit() %>% 
+  ggplot(., aes(x = chng_between, y = change, fill = GZ)) +
+  facet_wrap(~ GZ, ncol = 1, scales = "free_y") + 
+  geom_bar(stat = "identity", position = position_dodge2(width = .9)) +
+  geom_text(aes(y = -25, label = paste("+", change, sep = "")), 
+            position = position_dodge2(width = .9)) +
+  # geom_text(aes(y = -25, label = paste("+", change, sep = "")), 
+            # position = position_dodge2(width = .9)) +
+  # scale_y_continuous(limits = c(-35, 1200), breaks = seq(0, 1200, 150)) +
+  scale_fill_manual(values = c("#FF9966","#336699", "#006600"),
+                    labels = c(paste("Abnehmen"),
+                               paste("Fitness"),
+                               paste("Nichtrauchen"))) + 
+  labs(x = "Veänderung innerhalb des Monats",
+       y = "Randomisierte Fälle\nDifferenz zwischen Ende des Vormonats und Monatsende",
+       fill = "Gesundheitsziel:") +
+  theme_bw() +
+  theme(legend.position = "bottom",
+        axis.text = element_text(size = 12, color = "black"),
+        axis.title = element_text(size = 13, color = "black"),
+        strip.text = element_text(size = 15, color = "black"))
+
+```
+<br><font color = "grey">*Abbildung.* Veränderung in den Fallzahlen während eines Monats für alle drei Gesundheitsziele. Die Differenz ergibt sich aus letzter Messung des Monats minus der letzten Messung des Vormonats.</font><br><br>
+
+# Anzahl der Abmeldungen {.tabset}
+
+Anzahl der abgemeldeten Teilnehmer nach Gesundheitsziel und ihre Verteilung in den Studiengruppen Intervention (I) und Kontroll (K), sowie der Verteilung innerhalb der Randomisierungslisten der allgemeinen Online-Studie (A) und der medizinischen Teilstudie (M).
+
+Gezählt werden alle von der Studie und/oder dem Coaching abgemeldeten Teilnehmer, die die Registrierungsmail bestätigt haben und nicht als Testnutzer markiert sind.
+
+Die Mengen in der Auswertung sind disjunkt. Das bedeutet, dass ein Teilnehmer, der sich nur vom Coaching und nicht von der Studie abgemeldet hat, nur unter 'nur Coaching' gezählt wird. Um die Gesamtzahl der vom Coaching abgemeldeten Teilnehmer zu ermitteln, müssen die Spalten Studie und Coaching und nur Coaching addiert werden.
+
+Hinweis: Werden beispielsweise die Zeilen AC_A_I bis AC_M_K einer Spalte summiert, wird ihre Summe immer gleich oder geringer der Zeile AC in der gleichen Spalte sein. Die Differenz bilden die abgemeldeten Teilnehmer, die sich für das Gesundheitsziel angemeldet haben, aber nicht randomisiert wurden. 
+
+
+```{r}
+
+abmeldungen <- survey_progress %>% 
+  dplyr::select(Datum, contains("abm")) %>%
+  gather(., cond, n, -Datum) %>% 
+  mutate(Datum = as.Date(Datum)) %>% 
+  mutate_at(vars(cond), function(x) {gsub("SC", "BOTH", x)}) %>% 
+  # Aufbereitung der Rohdaten aus dem Survey
+  mutate(GZ = case_when(grepl("AC", cond) ~ "AC",
+                        grepl("FC", cond) ~ "FC",
+                        grepl("NC", cond) ~ "NC"),
+         abgemeldet_von = case_when(grepl("BOTH", cond) ~ "Studie und Coach",
+                                    grepl("S", cond) ~ "nur Studie",
+                                    grepl("C", cond) ~ "nur Coach"),
+         IG_KG = case_when(grepl("_I", cond) ~ "IG",
+                           grepl("_K", cond) ~ "KG",
+                           TRUE ~ "Alle Fälle"),
+         Studie = case_when(grepl("_A_", cond) ~ "Allg. Onlinestudie",
+                            grepl("_M_", cond) ~ "Med. Teilstudie",
+                            TRUE ~ "Gesamt"))
+
+```
+
+### Aktuelle Abmeldungen
+```{r, fig.width=10, fig.height=7}
+# Abmeldungen Gesamt nach GZ ####
+.plot_soc_ges <- abmeldungen %>% 
+  filter(Datum == max(Datum)) %>% 
+  filter(Studie == "Gesamt") %>% 
+  group_by(GZ, IG_KG) %>% 
+  mutate(p = n / sum(n)*100) %>% 
+ggplot(., aes(x = abgemeldet_von, y = p, fill = GZ)) +
+  geom_bar(stat = "identity", position = position_dodge2(width = .9, preserve = "single")) +
+  theme_bw() +
+  theme(legend.position = "none") +
+  labs(x = "Abmeldung von",
+       y = "Anteil an Fällen in %",
+       title = "Abmeldungen gesamt") +
+   geom_text(aes(y = -10,
+                label = paste(round(p), "%", sep = "", paste("\n(",n, ")", sep = ""))), size = 3,
+            position = position_dodge2(width = .9, preserve = "single")) +
+  scale_fill_manual(values = c("#FF9966","#336699", "#006600"),
+                    labels = c(paste("Abnehmen"),
+                               paste("Fitness"),
+                               paste("Nichtrauchen"))) +
+   scale_y_continuous(limits = c(-17, 100))
+
+# Abmeldungen nach GZ und IG_KG für Onlinestudie ####
+.plot_soc_allg <- abmeldungen %>% 
+  filter(Datum == max(Datum)) %>%
+  filter(Studie == "Allg. Onlinestudie") %>% 
+  group_by(GZ, IG_KG) %>% 
+  mutate(p = n / sum(n)*100) %>% 
+ggplot(., aes(x = abgemeldet_von, y = p, fill = GZ)) +
+  facet_grid(~IG_KG) +
+  geom_bar(stat = "identity", position = position_dodge2(width = .9, preserve = "single")) +
+  theme_bw() +
+  theme(legend.position = "none") +
+  labs(x = "",
+       y = "",
+       title = "Abmeldungen Allgemeine Onlinestudie") +
+  geom_text(aes(y = -10,
+                label = paste(round(p), "%", sep = "", paste("\n(",n, ")", sep = ""))), size = 2.5,
+            position = position_dodge2(width = .9, preserve = "single")) +
+  scale_fill_manual(values = c("#FF9966","#336699", "#006600"),
+                    labels = c(paste("Abnehmen"),
+                               paste("Fitness"),
+                               paste("Nichtrauchen"))) +
+   scale_y_continuous(limits = c(-17, 100))
+
+# Abmeldungen nach GZ und IG_KG für Med. Teilstudie
+.plot_soc_med <- abmeldungen %>% 
+  filter(Datum == max(Datum)) %>%
+  filter(Studie == "Med. Teilstudie") %>% 
+  group_by(GZ, IG_KG) %>% 
+  mutate(p = n / sum(n)*100) %>% 
+ggplot(., aes(x = abgemeldet_von, y = p, fill = GZ)) +
+  facet_grid(~IG_KG) +
+  geom_bar(stat = "identity", position = position_dodge2(width = .9, preserve = "single")) +
+  theme_bw() +
+  theme(legend.position = "none") +
+  labs(x = "Abmeldung von",
+       y = "",
+       title = "Abmeldungen Medizinische Teilstudie") +
+  geom_text(aes(y = -10,
+                label = paste(round(p), "%", sep = "", paste("\n(",n, ")", sep = ""))), size = 2.5,
+            position = position_dodge2(width = .9, preserve = "single")) +
+  scale_fill_manual(values = c("#FF9966","#336699", "#006600"),
+                    labels = c(paste("Abnehmen"),
+                               paste("Fitness"),
+                               paste("Nichtrauchen"))) +
+   scale_y_continuous(limits = c(-17, 100))
+
+.legende <- get_legend(.plot_soc_allg  + theme(legend.position = "bottom") + labs(fill = "Gesundheitsziel:"))
+plot_grid(plot_grid(.plot_soc_ges, 
+                    plot_grid(.plot_soc_allg, .plot_soc_med, ncol = 1), rel_widths = c(0.4, 0.6)), .legende, ncol = 1, rel_heights = c(0.9, 0.1))
+
+```
+<br><font color = "grey">*Abbildung.* Anteil an Personen, die entweder nur den Gesundheitscoach, nur die Studie oder beides abgebrochen haben. Die Gesamtzahl an Personen, die den Gesundheitscoach abbrachen ist die Summe aus "nur Coach" und "Studie und Coach".Zahlen in Klammern sind absolute Häufigkeit. Datengrundlage ist das 2-tägliche Survey-Monitoring. Die med. Teilstudie um fasste nur die zwei Gesundheitsziele Abnehmen und Fitness.</font><br><br>
+
+### Verlauf
+```{r table6}
+
+abmeldungen %>% 
+  dplyr::select(Datum, GZ, IG_KG, Studie, abgemeldet_von, n) %>%
+  na.omit() %>% 
+  datatable(.,
+            colnames = c("Datum", "Gesundheitsziel", 
+                         "Randomisierung",
+                         "Studie",
+                         "abgemeldet von",
+                         "Anzahl"),
+            caption = "Tabelle 1: Anzahl aller Studien- und Programmabbrüche nach Randomisierung, Studientyp und Grund", 
+            rownames = F,
+            class = "hover",
+            filter = "top",
+            extensions = "Buttons",
+            options = list(
+              #columnDefs = list(list(className = "dt-left", targets = c(3,5,7))),
+              pageLength = 12,
+              lengthChange = F,
+              dom = "tpB",
+              buttons = c("excel", "pdf"),
+              order = list(list(0, "desc"), list(2, "asc"), list(2, "asc"))
+            ))
+
+
+```
+
+# Fragebogenauswertung
+
+Die Auswertung der Teilnehmer erfolgt innerhalb der Fragebögen nach Gesundheitsziel und ihre Verteilung in den Studiengruppen Intervention (I) und Kontroll (K). Sämtliche Auswertungen werden zudem für die Teilstichproben mit angegeben.
+
+Spalten, die mit einem Minus markiert sind, repräsentieren Zustände innerhalb der Fragebögenauswertung, die durch keinen Teilnehmer erreicht werden können. Sie sind immer Null und wurden zur besseren Lesbarkeit der Auswertung ersetzt.
+
+Gezählt werden alle Teilnehmer, die die Registrierungsmail bestätigt haben und nicht als Testnutzer markiert sind. Desweiteren werden auch Teilnehmer gezählt, die sich bereits wieder von der Studien oder dem Coaching abgemeldet haben. 
+
+
+```{r questionaire data preperation}
+
+fragebogen <- survey_progress %>% 
+  dplyr::select(Messung, Datum, contains("_T")) %>%
+  gather(., cond, n, -Datum, -Messung) %>% 
+  mutate(Datum = as.Date(Datum)) %>% 
+  # Aufbereitung der Rohdaten aus dem Survey
+  mutate(GZ = case_when(grepl("AC", cond) ~ "AC",
+                        grepl("FC", cond) ~ "FC",
+                        grepl("NC", cond) ~ "NC"),
+         IG_KG = case_when(grepl("_I", cond) ~ "IG",
+                           grepl("_K", cond) ~ "KG",
+                           TRUE ~ "Alle Fälle"),
+         MZP = case_when(grepl("T0", cond) ~ "T0",
+                         grepl("T1", cond) ~ "T1",
+                         grepl("T2", cond) ~ "T2",
+                         grepl("T3", cond) ~ "T3"),
+         Studie = case_when(grepl("_A_", cond) ~ "Allg. Onlinestudie",
+                            grepl("_M_", cond) ~ "Med. Teilstudie",
+                            TRUE ~ "Gesamtstichprobe"),
+         Status = case_when(grepl("_ok$|_vk$|_ng$|_a$|_b$|_g$|_ga$", cond) ~ "geschlossene FB",
+                            TRUE ~ "aktive FB"),
+         Label = case_when(grepl("_ok", cond) ~ "offene Ankündigung",
+                           grepl("_vk", cond) ~ "versendete Ankündigungen",
+                           grepl("_ng$", cond) ~ "nicht gestartet",
+                           grepl("ng0", cond) ~ "nicht gestartet +0 Wochen",
+                           grepl("ng2", cond) ~ "nicht gestartet +2 Wochen",
+                           grepl("ng6", cond) ~ "nicht gestartet +6 Wochen",
+                           grepl("_a$", cond) ~ "abgebrochen",
+                           grepl("a0", cond) ~ "abgebrochen +0 Wochen",
+                           grepl("a2", cond) ~ "abgebrochen +2 Wochen",
+                           grepl("a6", cond) ~ "abgebrochen +6 Wochen",
+                           grepl("_b", cond) ~ "beendet",
+                           grepl("_g$", cond) ~ "gesperrt ohne Aufruf",
+                           grepl("_ga", cond) ~ "gesperrt mit Aufruf"))
+
+```
+
+# Abbruchquoten
+
+Die aktuellen Abbruchquoten für die Gesamtstichprobe und für die beiden Teilstichproben (Allgemeine Onlinestudie und Medizinische Teilstichprobe) werden in der nachfolgenden Tabelle 2 gezeigt. Die Abbruchquote berechnet sich für die Anzahl der Fragebögen, die bereits abgeschlossen sind, d.h. die aktuell aktiven Fragebögen werden rausgerechnet. Die Formel lautet:
+
+$$Abbruch = \frac{g + ga + a}{vk - ng}$$
+Die genutzten Abkürzungen sowie der Inhalt entsprechen den aus dem Survey Monitoring (Legende aus Monitoring übernommen):
+
+* g = Teilnehmer, deren Zugriff auf den Fragenbogen abgelaufen ist und die innerhalb der aktiven Zugriffzeit den Fragebogen nicht aufgerufen haben. 
+* ga = Teilnehmer, deren Zugriff auf den Fragenbogen abgelaufen ist und die innerhalb der aktiven Zugriffzeit den Fragebogen mintestens einmal aufgerufen haben. 
+* a = Teilnehmer, die eine Ankündigung erhalten und den Fragebogen während der aktiven Zugriffszeit mindestens einmal aufgerufen, aber nicht beendet haben. 
+* vk = Teilnehmer, die eine Ankündigung für den Fragebogen erhalten haben. 
+* ng = Teilnehmer, die eine Ankündigung erhalten und den Fragebogen während der aktiven Zugriffszeit noch nie aufgerufen haben.
+
+Um die Anzahl an Abbrechern zu bestimmen wird die Anzahl der Fragebögen, die noch nicht gestartet wurden abgezogen. Dies ist daher sinnvoll, weil ansonsten eine große Zahl noch aktiver, nicht gestarteter Fragebögen die Anzahl an wirklichen Abbrüchen verzerren (im Sinne von Unterschätzen) kann. Je größer der Anteil noch nicht geöffneter Fragebögen an der Gesamtzahl versendeter Fragebögen, desto geringer wären die Abbruchquoten. Die Annahme, dass alle noch aktiven, nicht geöffneten Fragebögen auch ausgefüllt werden, dürfte jedoch nicht haltbar sein und da die Anzahl der Abbrecher die noch kommen können unklar ist, wird die Anzahl der aktiven, nicht geöffneten Fragebögen daher von der Gesamtzahl abgezogen.
+
+## Aktuelle Quoten
+
+```{r}
+
+.teilstudienzahlen <- fragebogen %>%
+  filter(Status == "geschlossene FB") %>% 
+  filter(IG_KG != "Alle Fälle") %>%
+  group_by(Messung, Datum, Studie, MZP, Status, Label, GZ) %>% 
+  summarise(n = sum(n)) %>% ungroup() %>%
+  mutate(IG_KG = "Alle Fälle") %>% 
+  dplyr::select(Messung, Datum, GZ, IG_KG, Studie, MZP, n, Label) %>% 
+  as.data.frame()
+
+
+quoten <- fragebogen %>%
+  filter(Status == "geschlossene FB") %>%
+  # filter(Datum == max(Datum)) %>% 
+  dplyr::select(Messung, Datum, GZ, IG_KG, Studie, MZP, n, Label) %>% 
+  rbind(., .teilstudienzahlen) %>%
+  pivot_wider(names_from = c("Label", "GZ"), values_from = n) %>%
+  mutate(AC_potential = .$"offene Ankündigung_AC",
+         AC_fbs = .$"versendete Ankündigungen_AC" - .$"nicht gestartet_AC",
+         AC_abbruch = apply(.[c("abgebrochen_AC", "gesperrt ohne Aufruf_AC", "gesperrt mit Aufruf_AC")], 1, sum, na.rm = T),
+         AC_beendet = .$"beendet_AC",
+         AC_verschickt = .$"versendete Ankündigungen_AC") %>% 
+  mutate(FC_potential = .$"offene Ankündigung_FC",
+         FC_fbs = .$"versendete Ankündigungen_FC" - .$"nicht gestartet_FC",
+         FC_abbruch = apply(.[c("abgebrochen_FC", "gesperrt ohne Aufruf_FC", "gesperrt mit Aufruf_FC")], 1, sum, na.rm = T),
+         FC_beendet = .$"beendet_FC",
+         FC_verschickt = .$"versendete Ankündigungen_FC") %>% 
+  mutate(NC_potential = .$"offene Ankündigung_NC",
+         NC_fbs = .$"versendete Ankündigungen_NC" - .$"nicht gestartet_NC",
+         NC_abbruch = apply(.[c("abgebrochen_NC", "gesperrt ohne Aufruf_NC", "gesperrt mit Aufruf_NC")], 1, sum, na.rm = T),
+         NC_beendet = .$"beendet_NC",
+         NC_verschickt = .$"versendete Ankündigungen_NC") %>% 
+  mutate(AC_fbs = ifelse(is.na(AC_fbs), beendet_AC, AC_fbs),
+         FC_fbs = ifelse(is.na(FC_fbs), beendet_FC, FC_fbs),
+         NC_fbs = ifelse(is.na(NC_fbs), beendet_NC, NC_fbs)) %>%
+  # Quoten berechnen
+  # Die Abbruchquote errechnet sich aus der Anzahl an Personen die entweder
+  # - den FB nicht aufriefen und abbrachen (g)
+  # - den FB aufriefen und dann abbrachen (ga)
+  # - die Studie abbrachen (a)
+  # geteilt durch die Anzahl versendeter Fragebögen (vk) ohne die aktuell noch aktiven Fragebögen (ng)
+  mutate(AC_abbr.quote = AC_abbruch / (AC_fbs)*100,
+         FC_abbr.quote = FC_abbruch / (FC_fbs)*100,
+         NC_abbr.quote = NC_abbruch / (NC_fbs)*100) %>% 
+  dplyr::select(Messung, Datum, IG_KG, Studie, MZP, ends_with("quote"), starts_with("AC"), starts_with("NC"), starts_with("FC")) %>% 
+  gather(., cond, val, -IG_KG, -MZP, -Studie, -Datum, -Messung) %>% 
+  separate(cond, c("GZ", "var"), sep = "_") %>% 
+  pivot_wider(names_from = c("IG_KG", "GZ"), values_from = val)
+
+#### Daten für die numerische Änderung in den Quoten ####
+# Aktuelle Quote
+q3.1 <- quoten[quoten$Messung == max(quoten$Messung) & quoten$var == "abbr.quote", -c(1,2)]
+# Quote 2 Tage zuvor (= 1 Survey in Vergangenheit)
+q3.2 <- quoten[quoten$Messung == max(quoten$Messung)-1 & quoten$var == "abbr.quote", -c(1,2)]
+# Quote ca. eine Woche zuvor (= 4 Survey in der Vergangenheit)
+q3.3 <- quoten[quoten$Messung == max(quoten$Messung)-4 & quoten$var == "abbr.quote", -c(1,2)]
+# Quote ca. zwei Wochen zuvor ( = 7 Survey in der Vergangenheit)
+q3.4 <- quoten[quoten$Messung == max(quoten$Messung)-7 & quoten$var == "abbr.quote", -c(1,2)]
+# Differenzwerte bestimmen: Aktuelles Datum - Referenzdatum
+qdiff_1surv <- cbind(q3.1[,c(1:3)], q3.1[,-c(1:3)] - q3.2[,-c(1:3)])
+qdiff_1surv$diff = "Veränderung innerhalb 2 Tagen"
+qdiff_4surv <- cbind(q3.1[,c(1:3)], q3.1[,-c(1:3)] - q3.3[,-c(1:3)])
+qdiff_4surv$diff = "Veränderung innerhalb einer Woche"
+qdiff_7surv <- cbind(q3.1[,c(1:3)], q3.1[,-c(1:3)] - q3.4[,-c(1:3)])
+qdiff_7surv$diff = "Veränderung innerhalb zwei Wochen"
+
+```
+
+Die aktuellen Abbruchquoten sind aus Tabelle 2 zu entnehmen.
+
+```{r table2}
+
+quoten %>% 
+  filter(Datum == max(Datum)) %>%
+  filter(var == "abbr.quote") %>%
+  dplyr::select(-var, -MZP, -Datum, -Messung) %>%
+  kable(., "html",
+        digits = 2,
+        caption = paste("Tabelle 2: Aktuelle Abbruchquoten in %", "(Stand:", max(survey_progress$Datum), ")"),
+        col.names = c("", rep(c("Gesamt", "IG", "KG"), 3))) %>% 
+  kable_styling() %>% 
+  add_header_above(., c(" " = 1, "Abnehmen" = 3, "Fitness" = 3, "Nichtrauchen" = 3)) %>% 
+  footnote(general = "Die aktuellen Abbruchquoten errechnen sich aus der Anzahl aller Personen, die den Fragebogen nicht öffneten, den Fragebogen öffneten aber dann abbrachen und Personen welche die Studie bzw. das Programm abbrachen geteilt durch die Zahl der nicht mehr aktiven Fragebögen. Zu T0 waren alle Abbrecher auf nicht randomisierte Personen zurückzuführen. Für Nichtrauchen wird nicht zwischen Allgemeiner Onlinestudie und medizinischer Teilstudie unterschieden.", 
+           general_title = "Anmerkungen.",
+           footnote_as_chunk = T) %>% 
+  pack_rows("T0", 1, 3) %>% 
+  pack_rows("T1", 4, 6) %>% 
+  pack_rows("T2", 7, 9) %>% 
+  pack_rows("T3", 10, 12)
+
+```
+
+## Veränderung in der Abbruchquote {.tabset}
+
+Die numerische Differenz zwischen den Abbruchquoten wird bestimmt nach:
+
+$$\Delta Abbruchquote = Abbruchquote_{aktuell}-Abbruchquote_{vorherige Messung}$$
+Wobei die vorherige Messung:
+
+* einmal das vorangegangene Monitoring ist, d.h. der Stand von vor 2 Tagen, da das Monitoring alle geraden Tage erhoben wird.
+* das Monitoring von vor 8 Tagen ist, also etwas mehr als eine Woche umfasst.
+* das Monitoring von vor 14 Tagen ist.
+
+Positive Differenzwerte bedeuten daher, dass die Abbruchquote im Vergleich zum Referenzwert gestiegen ist, negative Differenzwerte, dass die Abbruchquote im Vergleich zum Referenzwert gesunken ist.
+
+
+### Abnehmen
+```{r}
+rbind(qdiff_1surv, qdiff_4surv, qdiff_7surv) %>% 
+  dplyr::select(Studie, MZP, contains("AC"), diff) %>% 
+  pivot_wider(names_from = diff, 
+              values_from = c("Alle Fälle_AC", "IG_AC", "KG_AC")) %>% 
+  dplyr::select(-MZP) %>% 
+  dplyr::select(Studie,
+                contains("2 Tage"),
+                contains("einer Woche"),
+                contains("zwei Wochen")) %>% 
+  kable(., "html",
+        digits = 2,
+        caption = "Tabelle 3: Veränderung in den Abbruchquoten für das Gesundheitsziel Abnehmen.",
+        col.names = c("", rep(c("Gesamt", "IG", "KG"), 3))) %>% 
+  kable_styling() %>% 
+  add_header_above(., c(" " = 1, "...vor 2 Tagen" = 3, "...vor 1 Woche" = 3, "...vor 2 Wochen" = 3)) %>% 
+  add_header_above(., c(" " = 1, "Veränderung im Vergleich zum Stand von..." = 9)) %>% 
+  footnote(general = "Die Veränderung der Abbruchquote wird durch die Differenz in den Quoten des aktuellen Monitorings zu den Quoten des jeweiligen Referenz-Monitorings gerechnet.",
+           general_title = "Anmerkungen.",
+           footnote_as_chunk = T) %>% 
+  pack_rows("T0", 1, 3) %>% 
+  pack_rows("T1", 4, 6) %>% 
+  pack_rows("T2", 7, 9) %>% 
+  pack_rows("T3", 10, 12)
+```
+
+### Fitness
+```{r}
+rbind(qdiff_1surv, qdiff_4surv, qdiff_7surv) %>% 
+  dplyr::select(Studie, MZP, contains("FC"), diff) %>% 
+  pivot_wider(names_from = diff, 
+              values_from = c("Alle Fälle_FC", "IG_FC", "KG_FC")) %>% 
+  dplyr::select(-MZP) %>% 
+  dplyr::select(Studie,
+                contains("2 Tage"),
+                contains("einer Woche"),
+                contains("zwei Wochen")) %>% 
+  kable(., "html",
+        digits = 2,
+        caption = "Tabelle 4: Veränderung in den Abbruchquoten für das Gesundheitsziel Fitness",
+        col.names = c("", rep(c("Gesamt", "IG", "KG"), 3))) %>% 
+  kable_styling() %>% 
+  add_header_above(., c(" " = 1, "...vor 2 Tagen" = 3, "...vor 1 Woche" = 3, "...vor 2 Wochen" = 3)) %>% 
+  add_header_above(., c(" " = 1, "Veränderung im Vergleich zum Stand von..." = 9)) %>% 
+  footnote(general = "Die Veränderung der Abbruchquote wird durch die Differenz in den Quoten des aktuellen Monitorings zu den Quoten des jeweiligen Referenz-Monitorings gerechnet.",
+           general_title = "Anmerkungen.",
+           footnote_as_chunk = T) %>% 
+  pack_rows("T0", 1, 3) %>% 
+  pack_rows("T1", 4, 6) %>% 
+  pack_rows("T2", 7, 9) %>% 
+  pack_rows("T3", 10, 12)
+```
+
+### Nichtrauchen
+```{r}
+rbind(qdiff_1surv, qdiff_4surv, qdiff_7surv) %>% 
+  dplyr::select(Studie, MZP, contains("NC"), diff) %>% 
+  filter(Studie != "Med. Teilstudie") %>% 
+  pivot_wider(names_from = diff, 
+              values_from = c("Alle Fälle_NC", "IG_NC", "KG_NC")) %>% 
+  dplyr::select(-MZP) %>% 
+  dplyr::select(Studie,
+                contains("2 Tage"),
+                contains("einer Woche"),
+                contains("zwei Wochen")) %>% 
+  kable(., "html",
+        digits = 2,
+        caption = "Tabelle 5: Veränderung in den Abbruchquoten für das Gesundheitsziel Nichtrauchen",
+        col.names = c("", rep(c("Gesamt", "IG", "KG"), 3))) %>% 
+  kable_styling() %>% 
+  add_header_above(., c(" " = 1, "...vor 2 Tagen" = 3, "...vor 1 Woche" = 3, "...vor 2 Wochen" = 3)) %>% 
+  add_header_above(., c(" " = 1, "Veränderung im Vergleich zum Stand von..." = 9)) %>% 
+  footnote(general = "Die Veränderung der Abbruchquote wird durch die Differenz in den Quoten des aktuellen Monitorings zu den Quoten des jeweiligen Referenz-Monitorings gerechnet. Im Nichtraucher-Coach gab es keine medizinische Teilstichprobe.",
+           general_title = "Anmerkungen.",
+           footnote_as_chunk = T) %>% 
+  pack_rows("T0", 1, 2) %>% 
+  pack_rows("T1", 3, 4) %>% 
+  pack_rows("T2", 5, 6) %>% 
+  pack_rows("T3", 7, 8)
+```
+
+
+## Entwicklung der Abbruchzahlen {.tabset}
+
+```{r}
+
+quote_verlauf <- fragebogen %>%
+  filter(Status == "geschlossene FB") %>%
+  # filter(Datum == max(Datum)) %>% 
+  dplyr::select(Datum, GZ, IG_KG, Studie, MZP, n, Label, -Messung) %>% 
+  rbind(., .teilstudienzahlen %>% dplyr::select(-Messung)) %>%
+  pivot_wider(names_from = c("Label", "GZ"), values_from = n) %>% 
+  mutate(AC_potential = .$"offene Ankündigung_AC",
+         # Nur bearbeitete Fragebögen ohne bisher nicht gestartete (also kein rohes Potential drin)
+         AC_fbs = .$"versendete Ankündigungen_AC" - .$"nicht gestartet_AC",
+         # Abbrecher: alle die gesperrt sind und geöffnet nicht beendeten
+         AC_abbruch = apply(.[c("abgebrochen_AC", "gesperrt ohne Aufruf_AC", "gesperrt mit Aufruf_AC")], 1, sum, na.rm = T),
+         # Abbrecher: alle gesperrten und geöffnet aber nicht beendet und alle noch nicht gestarteten
+         AC_worst = apply(.[c("abgebrochen_AC", "gesperrt ohne Aufruf_AC", "gesperrt mit Aufruf_AC", "nicht gestartet_AC")], 1, sum, na.rm = T),
+         # Abbrecher: nur gesperrte
+         AC_best = apply(.[c("gesperrt ohne Aufruf_AC", "gesperrt mit Aufruf_AC")], 1, sum, na.rm = T),
+         # Alle Beendeten
+         AC_beendet = .$"beendet_AC",
+         # Verschickte FB gesamt (Summe aus: beendet, gesperrte, nicht gestartet und gestartet aber nicht beendet)
+         AC_verschickt = .$"versendete Ankündigungen_AC") %>% 
+  mutate(FC_potential = .$"offene Ankündigung_FC",
+         FC_fbs = .$"versendete Ankündigungen_FC" - .$"nicht gestartet_FC",
+         FC_abbruch = apply(.[c("abgebrochen_FC", "gesperrt ohne Aufruf_FC", "gesperrt mit Aufruf_FC")], 1, sum, na.rm = T),
+         FC_worst = apply(.[c("abgebrochen_FC", "gesperrt ohne Aufruf_FC", "gesperrt mit Aufruf_FC", "nicht gestartet_FC")], 1, sum, na.rm = T),
+         FC_best = apply(.[c("gesperrt ohne Aufruf_FC", "gesperrt mit Aufruf_FC")], 1, sum, na.rm = T),
+         FC_beendet = .$"beendet_FC",
+         FC_verschickt = .$"versendete Ankündigungen_FC") %>% 
+  mutate(NC_potential = .$"offene Ankündigung_NC",
+         NC_fbs = .$"versendete Ankündigungen_NC" - .$"nicht gestartet_NC",
+         NC_abbruch = apply(.[c("abgebrochen_NC", "gesperrt ohne Aufruf_NC", "gesperrt mit Aufruf_NC")], 1, sum, na.rm = T),
+         NC_worst = apply(.[c("abgebrochen_NC", "gesperrt ohne Aufruf_NC", "gesperrt mit Aufruf_NC", "nicht gestartet_NC")], 1, sum, na.rm = T),
+         NC_best = apply(.[c("gesperrt ohne Aufruf_NC", "gesperrt mit Aufruf_NC")], 1, sum, na.rm = T),
+         NC_beendet = .$"beendet_NC",
+         NC_verschickt = .$"versendete Ankündigungen_NC") %>% 
+  mutate(AC_fbs = ifelse(is.na(AC_fbs), beendet_AC, AC_fbs),
+         FC_fbs = ifelse(is.na(FC_fbs), beendet_FC, FC_fbs),
+         NC_fbs = ifelse(is.na(NC_fbs), beendet_NC, NC_fbs)) %>% 
+  # Quoten berechnen
+  # Die Abbruchquote errechnet sich aus der Anzahl an Personen die entweder
+  # - den FB nicht aufriefen und abbrachen (g)
+  # - den FB aufriefen und dann abbrachen (ga)
+  # - die Studie abbrachen (a)
+  # geteilt durch die Anzahl versendeter Fragebögen (vk) ohne die aktuell noch aktiven Fragebögen (ng)
+  mutate(AC_abbr.quote = AC_abbruch / (AC_fbs)*100,
+         FC_abbr.quote = FC_abbruch / (FC_fbs)*100,
+         NC_abbr.quote = NC_abbruch / (NC_fbs)*100) %>% 
+  # Die Obergrenze der Abbruchuote wird bestimmt durch die Zahl...
+  mutate(AC_worst.quote = (AC_worst + AC_potential) / (AC_verschickt + AC_potential)*100,
+         FC_worst.quote = (FC_worst + FC_potential) / (FC_verschickt + FC_potential)*100,
+         NC_worst.quote = (NC_worst + NC_potential) / (NC_verschickt + NC_potential)*100) %>%
+  # Die Untergrenze der Abbruchquote wird bestimmt durch die Zahl...
+  mutate(AC_best.quote = AC_best / (AC_verschickt + AC_potential)*100,
+         FC_best.quote = FC_best / (FC_verschickt + FC_potential)*100,
+         NC_best.quote = NC_best / (NC_verschickt + NC_potential)*100) %>%
+  dplyr::select(Datum, IG_KG, Studie, MZP, ends_with("quote"), starts_with("AC"), starts_with("NC"), starts_with("FC")) %>% 
+  gather(., cond, val, -IG_KG, -MZP, -Studie, -Datum) %>% 
+  separate(cond, c("GZ", "var"), sep = "_") %>% 
+  pivot_wider(names_from = c("IG_KG", "GZ"), values_from = val) %>%
+  filter(grepl("quote", var)) %>%
+  pivot_longer(cols = contains("_"), names_to = "GZ", values_to = "quote") %>%
+  pivot_wider(names_from = var, values_from = quote) %>%
+  separate(., col = "GZ", into = c("IG_KG", "GZ"), sep = "_") %>%
+  mutate(worst.quote = ifelse(is.na(abbr.quote), NA, worst.quote),
+         best.quote = ifelse(is.na(abbr.quote), NA, best.quote))
+```
+
+
+
+Die Darstellung der Abbruchquoten umfasst erst die Werte ab August 2020, da zuvor ein Berechnungsfehler vorlag, welcher die Quoten vor August unzuverlässig machte. Im August fand zudem eine Umstellung der Sperre, d.h. den Zeitraum ab wann Personen nicht mehr auf den Fragebogen zugreifen konnten statt. Durch die Sperre gab es eine Reduktion der Abbruchquote, da zuvor gesperrte Teilnehmer wieder in den Kategorien *nicht geöffnete Fragebogen* gezählt wurden.
+
+Die Entwicklung der Abbruchzahlen umfasst sowohl die Darstellung der aktuellen Quote auf Basis der Formel zur Berechnung der Abbruchquoten als auch die Erweiterung um die Darstellung einer Spanne an möglichen Abbruchquoten. Dazu werden zwei neue Quoten bestimmt, welche das Potential mit in die Berechnung einbeziehen.
+
+Die höchst mögliche Abbruchquote setzt sich dabei zusammen aus:
+
+$$Abbruch = \frac{g + ga + a + ng + ok}{vk + ok}$$
+Das bedeutet, hier wird angenommen, dass zusätzlich zu allen gesperrten (g, ga) alle Personen auch abbrechen werden, die
+
+* den Fragebogen starteten aber nicht beendeten (a)
+* den Fragebogen nicht öffneten (ng)
+* noch eine Ankündigung erhalten werden (ok)
+
+Hier wird also vom schlimmsten Fall ausgegangen: sämtliche Potential wird abbrechen. Dies ist die absolute Obergrenze für eine Abbruchquote. 
+Dem entgegen wird eine Untergrenze bestimmt:
+
+$$Abbruch = \frac{g + ga}{vk + ok}$$
+Die Untergrenze umfasst also nur die Fälle die wirklich bereits als abbrecher zählen. Vom gesamten Potential (a, ng, ok) wird angenommen, dass sie den Fragebogen ausfüllen werden.
+
+Mit zunehmender Zeit wird das Intervall kleiner und sich der aktuellen Abbruchquote annähern, da diese ohne das Potential berechnet wird.
+
+Die Darstellung umfasst nur Messzeitpunkte nach der Baseline (T1 bis T3). Es werden für die Zeitpunkte T1 bis T3 nur Werte präsentiert, wenn sie auch vorhanden sind. Fehlende Werte, im Sinne von, die Messung fand zu dem Zeitpunkt noch nicht statt, werden ausgeblendet, daher haben alle Messzeitpunkte eine eigene Skalierung der Zeitachse (X-Achse).
+
+### Abnehmen
+```{r quitter over time AC, fig.width=10, fig.height=6}
+
+quote_verlauf %>% 
+  filter(MZP != "T0") %>%
+  filter(GZ == "AC") %>%
+  filter(Studie == "Gesamtstichprobe") %>%
+  filter(IG_KG == "Alle Fälle") %>%
+  filter(Datum > as.Date("2020-08-01")) %>%
+  na.omit() %>% 
+  ggplot(., aes(x = Datum, y = abbr.quote)) +
+  facet_wrap(~ MZP, scales = "free", ncol = 1) +
+  geom_point(color = "#FF9966") +
+  geom_errorbar(aes(ymin = best.quote, ymax = worst.quote), width = 1, color = "#FF9966") +
+  geom_line(color = "#FF9966") +
+  scale_y_continuous(limits = c(0, 100), breaks = seq(0, 100, 10)) +
+  theme_bw() +
+  theme(axis.text = element_text(size = 12, color = "black"),
+        axis.title = element_text(size = 13, color = "black"),
+        strip.text = element_text(size = 15, color = "black"))
+
+```
+
+### Fitness
+
+```{r quitter over time FC, fig.width=10, fig.height=6}
+
+quote_verlauf %>% 
+  filter(MZP != "T0") %>%
+  filter(GZ == "FC") %>%
+  filter(Studie == "Gesamtstichprobe") %>%
+  filter(IG_KG == "Alle Fälle") %>%
+  filter(Datum > as.Date("2020-08-01")) %>%
+  na.omit() %>% 
+  ggplot(., aes(x = Datum, y = abbr.quote)) +
+  facet_wrap(~ MZP, scales = "free", ncol = 1) +
+  geom_point(color = "#336699") +
+  geom_errorbar(aes(ymin = best.quote, ymax = worst.quote), width = 1, color = "#336699") +
+  geom_line(color = "#336699") +
+  scale_y_continuous(limits = c(0, 100), breaks = seq(0, 100, 10)) +
+  theme_bw() +
+  theme(axis.text = element_text(size = 12, color = "black"),
+        axis.title = element_text(size = 13, color = "black"),
+        strip.text = element_text(size = 15, color = "black"))
+
+```
+
+
+### Nichtrauchen
+
+```{r quitter over time NC, fig.width=10, fig.height=6}
+
+quote_verlauf %>% 
+  filter(MZP != "T0") %>%
+  filter(GZ == "NC") %>%
+  filter(Studie == "Gesamtstichprobe") %>%
+  filter(IG_KG == "Alle Fälle") %>%
+  filter(Datum > as.Date("2020-08-01")) %>%
+  na.omit() %>% 
+  ggplot(., aes(x = Datum, y = abbr.quote)) +
+  facet_wrap(~ MZP, scales = "free", ncol = 1) +
+  geom_point(color = "#006600") +
+  geom_errorbar(aes(ymin = best.quote, ymax = worst.quote), width = 1, color = "#006600") +
+  geom_line(color = "#006600") +
+  scale_y_continuous(limits = c(0, 100), breaks = seq(0, 100, 10)) +
+  theme_bw() +
+  theme(axis.text = element_text(size = 12, color = "black"),
+        axis.title = element_text(size = 13, color = "black"),
+        strip.text = element_text(size = 15, color = "black"))
+
+```
+
+## Neue Abbrecher
+
+Neben der Gesamtbetrachtung, ist auch von interesse, wie groß der Anteil an neuen Abbrechern pro Messzeitpunkt ist. Als *Neue Abbrecher* werden solche Personen definiert, die an einem vorangegangenen Zeitpunkt noch teilnahmen (z.B. T1) aber dann an den nachfolgenden Zeitpunkt den Fragebogen (T2) nicht mehr ausfüllten. In diesem Abschnitt wird dargestellt
+
+* wie viele Personen, die zu einem vorherigen Messzeitpunkt abbrachen, noch an nachfolgenden Messzeitpunkten teilnahmen bzw. nicht mehr teilnahmen.
+* wie groß die Abbruchquote auf Basis der Leute ist, die an den jeweils vorherigen Zeitpunkten teilnahmen.
+* wie die Veränderung in den Abbruchquoten auf Basis der Leute ist, die an dem jeweilig vorangegangenen Zeitpunkt noch teilnahmen.
+
+Diese Informationen eignen sich einzuschätzen
+
+* wie viele Fälle, die einen vorherigen Zeitpunkt abbrachen,  wiedergewonnen werden konnten (möglicherweise durch die Reminder).
+* wie groß die Abbruchrate im Vergleich zu den erstellten Abbruchszenarien ist.
+
+Zusätzlich ist ein Vergleich der Veränderung in den Abbruchquoten basierend auf den Gesamtdaten und den Neuen Abbrechern möglich.
+
+```{r new quitter data preparation}
+
+q_clean <- raw_survey[[length(raw_survey)]]
+
+q_clean <- merge(q_clean, .med.studie_Ids, by = "Id", all = T) %>% 
+  mutate(Studie = ifelse(is.na(Studie), "Allg. Onlinestudie", Studie))
+
+# Quote nur Abbrecher zu T2. Es werden nur die Leute genommen,
+# die T1 auch beendet haben. Also die "unique" Abbrecher wenn man so will.
+q_clean <- rbind(
+q_clean %>% 
+  dplyr::select(Id, GZ, IG_KG, Studie, t1_beendet, starts_with("T2")) %>%
+  mutate_at(vars(-Id, -GZ, -IG_KG), function(x) {ifelse(is.na(x), 0, x)}) %>% 
+  filter(t2_Ankündigung_versendet > 0) %>% 
+  rename(pre_beendet = t1_beendet,
+         b = t2_beendet, 
+         g = t2_gesperrt, 
+         a = t2_abgebrochen, 
+         vk = t2_Ankündigung_versendet) %>%
+  mutate(ng = ifelse(vk == 1 & t2_begonnen == 0 & g == 0, 1, 0)) %>% 
+  dplyr::select(Id, GZ, IG_KG, Studie, pre_beendet, vk, b, g, a, ng) %>% 
+  mutate(MZP = "T2"),
+
+q_clean %>% 
+  dplyr::select(Id, GZ, IG_KG, Studie, t2_beendet, starts_with("T3")) %>%
+  mutate_at(vars(-Id, -GZ, -IG_KG), function(x) {ifelse(is.na(x), 0, x)}) %>% 
+  filter(t3_Ankündigung_versendet > 0) %>% 
+  rename(pre_beendet = t2_beendet,
+         b = t3_beendet, 
+         g = t3_gesperrt, 
+         a = t3_abgebrochen, 
+         vk = t3_Ankündigung_versendet) %>%
+  mutate(ng = ifelse(vk == 1 & t3_begonnen == 0 & g == 0, 1, 0)) %>% 
+  dplyr::select(Id, GZ, IG_KG, Studie, pre_beendet, vk, b, g, a, ng) %>% 
+  mutate(MZP = "T3")
+) %>% 
+  mutate(pre_beendet = factor(pre_beendet, levels = c(0, 1),
+                              labels = c("nicht beendet", "beendet")),
+         IG_KG = factor(IG_KG, levels = c(1, 2),
+                        labels = c("IG", "KG")))
+
+quoten_bereinigt <- rbind(
+q_clean %>%  
+  filter(pre_beendet == "beendet") %>% 
+  group_by(GZ, MZP) %>% 
+  summarise_at(vars(vk, b, g, a, ng), function(x) {sum(x)}) %>% 
+  mutate(abbruch.quote = (g + a) / (vk - ng)) %>% 
+  mutate(Studie = "Gesamtstichprobe",
+         IG_KG = "Alle Fälle") %>% 
+  dplyr::select(GZ, MZP, Studie, IG_KG, abbruch.quote),
+
+q_clean %>%  
+  group_by(GZ, MZP, Studie) %>%
+  filter(pre_beendet == "beendet") %>% 
+  summarise_at(vars(vk, b, g, a, ng), function(x) {sum(x)}) %>% 
+  mutate(abbruch.quote = (g + a) / (vk - ng)) %>% 
+  mutate(IG_KG = "Alle Fälle") %>% 
+  dplyr::select(GZ, MZP, Studie, IG_KG, abbruch.quote),
+
+q_clean %>%  
+  filter(pre_beendet == "beendet") %>% 
+  group_by(GZ, MZP, Studie, IG_KG) %>% 
+  summarise_at(vars(vk, b, g, a, ng), function(x) {sum(x)}) %>% 
+  mutate(abbruch.quote = (g + a) / (vk - ng)) %>% 
+  dplyr::select(GZ, MZP, Studie, IG_KG, abbruch.quote)
+)
+
+# Veränderung in der bereinigten Quote ####
+
+# 3 MZP benötigt: Vormessung (aktuell -1), 
+# vor einer Woche (aktuell -4) und vor zwei Wochen (aktuell -7)
+
+# Veränderung zum Vorherigen Survey ####
+.q_clean2 <- raw_survey[[length(raw_survey)-1]]
+.q_clean2 <- merge(.q_clean2, .med.studie_Ids, by = "Id", all = T) %>% 
+  mutate(Studie = ifelse(is.na(Studie), "Allg. Onlinestudie", Studie))
+
+.q_clean2 <- rbind(
+  .q_clean2 %>% 
+    dplyr::select(Id, GZ, IG_KG, Studie, t1_beendet, starts_with("T2")) %>%
+    mutate_at(vars(-Id, -GZ, -IG_KG), function(x) {ifelse(is.na(x), 0, x)}) %>% 
+    filter(t2_Ankündigung_versendet > 0) %>% 
+    rename(pre_beendet = t1_beendet,
+           b = t2_beendet, 
+           g = t2_gesperrt, 
+           a = t2_abgebrochen, 
+           vk = t2_Ankündigung_versendet) %>%
+    mutate(ng = ifelse(vk == 1 & t2_begonnen == 0 & g == 0, 1, 0)) %>% 
+    dplyr::select(Id, GZ, IG_KG, Studie, pre_beendet, vk, b, g, a, ng) %>% 
+    mutate(MZP = "T2"),
+  
+  .q_clean2 %>% 
+    dplyr::select(Id, GZ, IG_KG, Studie, t2_beendet, starts_with("T3")) %>%
+    mutate_at(vars(-Id, -GZ, -IG_KG), function(x) {ifelse(is.na(x), 0, x)}) %>% 
+    filter(t3_Ankündigung_versendet > 0) %>% 
+    rename(pre_beendet = t2_beendet,
+           b = t3_beendet, 
+           g = t3_gesperrt, 
+           a = t3_abgebrochen, 
+           vk = t3_Ankündigung_versendet) %>%
+    mutate(ng = ifelse(vk == 1 & t3_begonnen == 0 & g == 0, 1, 0)) %>% 
+    dplyr::select(Id, GZ, IG_KG, Studie, pre_beendet, vk, b, g, a, ng) %>% 
+    mutate(MZP = "T3")
+) %>% 
+  mutate(pre_beendet = factor(pre_beendet, levels = c(0, 1),
+                              labels = c("nicht beendet", "beendet")),
+         IG_KG = factor(IG_KG, levels = c(1, 2),
+                        labels = c("IG", "KG")))
+
+.quoten2 <- rbind(
+  .q_clean2 %>%  
+    filter(pre_beendet == "beendet") %>% 
+    group_by(GZ, MZP) %>% 
+    summarise_at(vars(vk, b, g, a, ng), function(x) {sum(x)}) %>% 
+    mutate(abbruch.quote = (g + a) / (vk - ng)) %>% 
+    mutate(Studie = "Gesamtstichprobe",
+           IG_KG = "Alle Fälle") %>% 
+    dplyr::select(GZ, MZP, Studie, IG_KG, abbruch.quote),
+  
+  .q_clean2 %>%  
+    group_by(GZ, MZP, Studie) %>%
+    filter(pre_beendet == "beendet") %>% 
+    summarise_at(vars(vk, b, g, a, ng), function(x) {sum(x)}) %>% 
+    mutate(abbruch.quote = (g + a) / (vk - ng)) %>% 
+    mutate(IG_KG = "Alle Fälle") %>% 
+    dplyr::select(GZ, MZP, Studie, IG_KG, abbruch.quote),
+  
+  .q_clean2 %>%  
+    filter(pre_beendet == "beendet") %>% 
+    group_by(GZ, MZP, Studie, IG_KG) %>% 
+    summarise_at(vars(vk, b, g, a, ng), function(x) {sum(x)}) %>% 
+    mutate(abbruch.quote = (g + a) / (vk - ng)) %>% 
+    dplyr::select(GZ, MZP, Studie, IG_KG, abbruch.quote)
+) 
+# Veränderung zu 1 Woche ####
+.q_clean4 <- raw_survey[[length(raw_survey)-4]]
+.q_clean4 <- merge(.q_clean4, .med.studie_Ids, by = "Id", all = T) %>% 
+  mutate(Studie = ifelse(is.na(Studie), "Allg. Onlinestudie", Studie))
+
+.q_clean4 <- rbind(
+  .q_clean4 %>% 
+    dplyr::select(Id, GZ, IG_KG, Studie, t1_beendet, starts_with("T2")) %>%
+    mutate_at(vars(-Id, -GZ, -IG_KG), function(x) {ifelse(is.na(x), 0, x)}) %>% 
+    filter(t2_Ankündigung_versendet > 0) %>% 
+    rename(pre_beendet = t1_beendet,
+           b = t2_beendet, 
+           g = t2_gesperrt, 
+           a = t2_abgebrochen, 
+           vk = t2_Ankündigung_versendet) %>%
+    mutate(ng = ifelse(vk == 1 & t2_begonnen == 0 & g == 0, 1, 0)) %>% 
+    dplyr::select(Id, GZ, IG_KG, Studie, pre_beendet, vk, b, g, a, ng) %>% 
+    mutate(MZP = "T2"),
+  
+  .q_clean4 %>% 
+    dplyr::select(Id, GZ, IG_KG, Studie, t2_beendet, starts_with("T3")) %>%
+    mutate_at(vars(-Id, -GZ, -IG_KG), function(x) {ifelse(is.na(x), 0, x)}) %>% 
+    filter(t3_Ankündigung_versendet > 0) %>% 
+    rename(pre_beendet = t2_beendet,
+           b = t3_beendet, 
+           g = t3_gesperrt, 
+           a = t3_abgebrochen, 
+           vk = t3_Ankündigung_versendet) %>%
+    mutate(ng = ifelse(vk == 1 & t3_begonnen == 0 & g == 0, 1, 0)) %>% 
+    dplyr::select(Id, GZ, IG_KG, Studie, pre_beendet, vk, b, g, a, ng) %>% 
+    mutate(MZP = "T3")
+) %>% 
+  mutate(pre_beendet = factor(pre_beendet, levels = c(0, 1),
+                              labels = c("nicht beendet", "beendet")),
+         IG_KG = factor(IG_KG, levels = c(1, 2),
+                        labels = c("IG", "KG")))
+
+.quoten4 <- rbind(
+  .q_clean4 %>%  
+    filter(pre_beendet == "beendet") %>% 
+    group_by(GZ, MZP) %>% 
+    summarise_at(vars(vk, b, g, a, ng), function(x) {sum(x)}) %>% 
+    mutate(abbruch.quote = (g + a) / (vk - ng)) %>% 
+    mutate(Studie = "Gesamtstichprobe",
+           IG_KG = "Alle Fälle") %>% 
+    dplyr::select(GZ, MZP, Studie, IG_KG, abbruch.quote),
+  
+  .q_clean4 %>%  
+    group_by(GZ, MZP, Studie) %>%
+    filter(pre_beendet == "beendet") %>% 
+    summarise_at(vars(vk, b, g, a, ng), function(x) {sum(x)}) %>% 
+    mutate(abbruch.quote = (g + a) / (vk - ng)) %>% 
+    mutate(IG_KG = "Alle Fälle") %>% 
+    dplyr::select(GZ, MZP, Studie, IG_KG, abbruch.quote),
+  
+  .q_clean4 %>%  
+    filter(pre_beendet == "beendet") %>% 
+    group_by(GZ, MZP, Studie, IG_KG) %>% 
+    summarise_at(vars(vk, b, g, a, ng), function(x) {sum(x)}) %>% 
+    mutate(abbruch.quote = (g + a) / (vk - ng)) %>% 
+    dplyr::select(GZ, MZP, Studie, IG_KG, abbruch.quote)
+) 
+# Veränderung zu 2 Wochen ####
+.q_clean7 <- raw_survey[[length(raw_survey)-7]]
+.q_clean7 <- merge(.q_clean7, .med.studie_Ids, by = "Id", all = T) %>% 
+  mutate(Studie = ifelse(is.na(Studie), "Allg. Onlinestudie", Studie))
+.q_clean7 <- rbind(
+  .q_clean7 %>% 
+    dplyr::select(Id, GZ, IG_KG, Studie, t1_beendet, starts_with("T2")) %>%
+    mutate_at(vars(-Id, -GZ, -IG_KG), function(x) {ifelse(is.na(x), 0, x)}) %>% 
+    filter(t2_Ankündigung_versendet > 0) %>% 
+    rename(pre_beendet = t1_beendet,
+           b = t2_beendet, 
+           g = t2_gesperrt, 
+           a = t2_abgebrochen, 
+           vk = t2_Ankündigung_versendet) %>%
+    mutate(ng = ifelse(vk == 1 & t2_begonnen == 0 & g == 0, 1, 0)) %>% 
+    dplyr::select(Id, GZ, IG_KG, Studie, pre_beendet, vk, b, g, a, ng) %>% 
+    mutate(MZP = "T2"),
+  
+  .q_clean7 %>% 
+    dplyr::select(Id, GZ, IG_KG, Studie, t2_beendet, starts_with("T3")) %>%
+    mutate_at(vars(-Id, -GZ, -IG_KG), function(x) {ifelse(is.na(x), 0, x)}) %>% 
+    filter(t3_Ankündigung_versendet > 0) %>% 
+    rename(pre_beendet = t2_beendet,
+           b = t3_beendet, 
+           g = t3_gesperrt, 
+           a = t3_abgebrochen, 
+           vk = t3_Ankündigung_versendet) %>%
+    mutate(ng = ifelse(vk == 1 & t3_begonnen == 0 & g == 0, 1, 0)) %>% 
+    dplyr::select(Id, GZ, IG_KG, Studie, pre_beendet, vk, b, g, a, ng) %>% 
+    mutate(MZP = "T3")
+) %>% 
+  mutate(pre_beendet = factor(pre_beendet, levels = c(0, 1),
+                              labels = c("nicht beendet", "beendet")),
+         IG_KG = factor(IG_KG, levels = c(1, 2),
+                        labels = c("IG", "KG")))
+
+.quoten7 <- rbind(
+  .q_clean7 %>%  
+    filter(pre_beendet == "beendet") %>% 
+    group_by(GZ, MZP) %>% 
+    summarise_at(vars(vk, b, g, a, ng), function(x) {sum(x)}) %>% 
+    mutate(abbruch.quote = (g + a) / (vk - ng)) %>% 
+    mutate(Studie = "Gesamtstichprobe",
+           IG_KG = "Alle Fälle") %>% 
+    dplyr::select(GZ, MZP, Studie, IG_KG, abbruch.quote),
+  
+  .q_clean7 %>%  
+    group_by(GZ, MZP, Studie) %>%
+    filter(pre_beendet == "beendet") %>% 
+    summarise_at(vars(vk, b, g, a, ng), function(x) {sum(x)}) %>% 
+    mutate(abbruch.quote = (g + a) / (vk - ng)) %>% 
+    mutate(IG_KG = "Alle Fälle") %>% 
+    dplyr::select(GZ, MZP, Studie, IG_KG, abbruch.quote),
+  
+  .q_clean7 %>%  
+    filter(pre_beendet == "beendet") %>% 
+    group_by(GZ, MZP, Studie, IG_KG) %>% 
+    summarise_at(vars(vk, b, g, a, ng), function(x) {sum(x)}) %>% 
+    mutate(abbruch.quote = (g + a) / (vk - ng)) %>% 
+    dplyr::select(GZ, MZP, Studie, IG_KG, abbruch.quote)
+) 
+
+# Zusammenführen ####
+quoten_bereinigt_change <- merge(quoten_bereinigt, .quoten2, 
+      by = c("GZ", "MZP", "Studie", "IG_KG"), all = T,
+      suffixes = c("_act", "_2T")) %>% 
+  merge(., .quoten4, 
+        by = c("GZ", "MZP", "Studie", "IG_KG"), all = T) %>% 
+  merge(., .quoten7, 
+        by = c("GZ", "MZP", "Studie", "IG_KG"), all = T,
+        suffixes = c("_1W", "_2W")) %>% 
+  mutate(diff_akt_1T = abbruch.quote_act - abbruch.quote_2T,
+         diff_akt_1W = abbruch.quote_act - abbruch.quote_1W,
+         diff_akt_2W = abbruch.quote_act - abbruch.quote_2W) %>% 
+  dplyr::select(GZ, MZP, Studie, IG_KG, starts_with("diff"))
+```
+
+### Abbruchquoten {.tabset}
+
+#### Aktuelle Quoten
+```{r}
+quoten_bereinigt %>% 
+  pivot_wider(names_from = c("GZ", "IG_KG"), values_from = abbruch.quote) %>% 
+  dplyr::select(Studie, contains("AC"), contains("FC"), contains("NC")) %>% 
+  mutate_at(vars(-Studie), function(x) {x*100}) %>% 
+  kable(., "html",
+        digits = 2,
+        caption = paste("Tabelle 2: Abbruchquote in % für Personen zu die T1 noch teilnahmen (Neue-Abbrecher T2)", "(Stand:", max(survey_progress$Datum), ")"),
+        col.names = c("", rep(c("Gesamt", "IG", "KG"), 3))) %>% 
+  kable_styling() %>% 
+  add_header_above(., c(" " = 1, "Abnehmen" = 3, "Fitness" = 3, "Nichtrauchen" = 3)) %>% 
+  pack_rows("T2", 1, 3) 
+```
+
+#### Veränderung in der Abbruchquote {.tabset}
+
+##### Abnehmen
+
+```{r}
+quoten_bereinigt_change %>% 
+  filter(GZ == "AC") %>% 
+  dplyr::select(-GZ) %>% 
+  pivot_wider(names_from = c("IG_KG"), values_from = starts_with("diff")) %>% 
+  dplyr::select(Studie, contains("1T"), contains("1W"), contains("2W")) %>% 
+  mutate_at(vars(-Studie), function(x) {x*100}) %>%
+  .[c(2, 1, 3),] %>% 
+  kable(., "html",
+        digits = 2,
+        caption = paste("Tabelle 2: Veränderung in der Abbruchquote in % (nur Neue Abbrecher) für das Gesundheitsziel Abnehmen", "(Stand:", max(survey_progress$Datum), ")"),
+        col.names = c("", rep(c("Gesamt", "IG", "KG"), 3))) %>% 
+  kable_styling() %>% 
+  add_header_above(., c(" " = 1,
+                        "...vor 2 Tagen" = 3, 
+                        "...vor 1 Woche" = 3,
+                        "...vor 2 Wochen" = 3)) %>% 
+    add_header_above(., c(" " = 1, "Veränderung im Vergleich zum Stand von..." = 9)) %>% 
+  pack_rows("T2", 1, 3) 
+
+```
+
+##### Fitness
+
+```{r}
+quoten_bereinigt_change %>% 
+  filter(GZ == "FC") %>% 
+  dplyr::select(-GZ) %>% 
+  pivot_wider(names_from = c("IG_KG"), values_from = starts_with("diff")) %>% 
+  dplyr::select(Studie, contains("1T"), contains("1W"), contains("2W")) %>% 
+  mutate_at(vars(-Studie), function(x) {x*100}) %>% 
+  .[c(2, 1, 3),] %>% 
+  kable(., "html",
+        digits = 2,
+        caption = paste("Tabelle 2: Veränderung in der Abbruchquote in % (nur Neue Abbrecher) für das Gesundheitsziel Fitness", "(Stand:", max(survey_progress$Datum), ")"),
+        col.names = c("", rep(c("Gesamt", "IG", "KG"), 3))) %>% 
+  kable_styling() %>% 
+  add_header_above(., c(" " = 1,
+                        "...vor 2 Tagen" = 3, 
+                        "...vor 1 Woche" = 3,
+                        "...vor 2 Wochen" = 3)) %>% 
+    add_header_above(., c(" " = 1, "Veränderung im Vergleich zum Stand von..." = 9)) %>% 
+  pack_rows("T2", 1, 3) 
+
+```
+
+##### Nichtrauchen
+
+```{r}
+quoten_bereinigt_change %>% 
+  filter(GZ == "NC") %>% 
+  dplyr::select(-GZ) %>% 
+  pivot_wider(names_from = c("IG_KG"), values_from = starts_with("diff")) %>% 
+  dplyr::select(Studie, contains("1T"), contains("1W"), contains("2W")) %>% 
+  mutate_at(vars(-Studie), function(x) {x*100}) %>% 
+  .[c(2, 1),] %>% 
+  kable(., "html",
+        digits = 2,
+        caption = paste("Tabelle 2: Veränderung in der Abbruchquote in % (nur Neue Abbrecher) für das Gesundheitsziel Nichtrauchen", "(Stand:", max(survey_progress$Datum), ")"),
+        col.names = c("", rep(c("Gesamt", "IG", "KG"), 3))) %>% 
+  kable_styling() %>% 
+  add_header_above(., c(" " = 1,
+                        "...vor 2 Tagen" = 3, 
+                        "...vor 1 Woche" = 3,
+                        "...vor 2 Wochen" = 3)) %>% 
+    add_header_above(., c(" " = 1, "Veränderung im Vergleich zum Stand von..." = 9)) %>% 
+  pack_rows("T2", 1, 2) 
+
+```
+
+### Fragebogenstatus {.tabset}
+
+#### Allg. Onlinestudie
+```{r, fig.width=10, fig.height=8}
+
+q_clean %>% 
+  filter(MZP == "T2") %>% 
+  filter(Studie == "Allg. Onlinestudie") %>% 
+  group_by(GZ, IG_KG, pre_beendet) %>% 
+  summarise(b = sum(b),
+            a = sum(a),
+            g = sum(g),
+            ng = sum(ng)) %>% 
+  pivot_longer(., cols = c("b", "a", "g", "ng"), 
+               names_to = "Status",
+               values_to = "n") %>% 
+  mutate(Status = factor(Status, 
+                         # levels = c("a", "b", "g", "ng"),
+                         levels = c("b", "ng", "a", "g"),
+                         labels = c("beendet",
+                                    "nicht\ngeöffnet",
+                                    "gestartet\naber nicht\nbeendet",
+                                    "gesperrt"),
+                         ordered = T)) %>% 
+  ggplot(., aes(x = Status, y = n, fill = pre_beendet)) +
+  facet_grid(IG_KG ~ GZ) +
+  geom_bar(stat = "identity", position = position_dodge()) +
+  geom_text(aes(label = n), position = position_dodge2(width = .9),
+            vjust = -.1)+
+  labs(x = "Status des Fragebogens zu T2",
+       y = "Anzahl an Fälle",
+       fill = "Fragebogenstatus zu T1",
+       title = "Fragebogenstatus für Fälle die eine Einladung zu T2 erhalten haben",
+       subtitle = "Allgemeine Onlinestudie") +
+  theme_bw() +
+  theme(legend.position = "bottom",
+        axis.text = element_text(size = 11, color = "black"),
+        axis.title = element_text(size = 13, color = "black"),
+        legend.text = element_text(size = 11, color = "black"),
+        legend.title = element_text(size = 11, color = "black"),
+        strip.text = element_text(size = 15, color = "black"))
+
+```
+<br><font color = "grey">Abbildung. Fragebogenstatus von Personen zu T2 im Vergleich zu deren Fragebogenstatus zu T1. Die Darstellung umfasst nur Fälle der Allgemeinen Onlinestudie. Es werden nur die Fälle berücksichtigt, welche bereits eine Einladung zu T2 erhalten haben (Potential ist nicht berücksichtigt)</font><br><br>
+
+#### Med. Teilstudie
+```{r, fig.width=10, fig.height=8}
+
+q_clean %>% 
+  filter(MZP == "T2") %>% 
+  filter(Studie == "Med. Teilstudie") %>% 
+  group_by(GZ, IG_KG, pre_beendet) %>% 
+  summarise(b = sum(b),
+            a = sum(a),
+            g = sum(g),
+            ng = sum(ng)) %>% 
+  pivot_longer(., cols = c("b", "a", "g", "ng"), 
+               names_to = "Status",
+               values_to = "n") %>% 
+  mutate(Status = factor(Status, 
+                         # levels = c("a", "b", "g", "ng"),
+                         levels = c("b", "ng", "a", "g"),
+                         labels = c("beendet",
+                                    "nicht\ngeöffnet",
+                                    "gestartet\naber nicht\nbeendet",
+                                    "gesperrt"),
+                         ordered = T)) %>% 
+  ggplot(., aes(x = Status, y = n, fill = pre_beendet)) +
+  facet_grid(IG_KG ~ GZ) +
+  geom_bar(stat = "identity", position = position_dodge()) +
+  geom_text(aes(label = n), position = position_dodge2(width = .9),
+            vjust = -.1)+
+  labs(x = "Status des Fragebogens zu T2",
+       y = "Anzahl an Fälle",
+       fill = "Fragebogenstatus zu T1",
+       title = "Fragebogenstatus für Fälle die eine Einladung zu T2 erhalten haben",
+       subtitle = "Medizinische Teilstudie") +
+  theme_bw() +
+  theme(legend.position = "bottom",
+        axis.text = element_text(size = 11, color = "black"),
+        axis.title = element_text(size = 13, color = "black"),
+        legend.text = element_text(size = 11, color = "black"),
+        legend.title = element_text(size = 11, color = "black"),
+        strip.text = element_text(size = 15, color = "black"))
+
+```
+<br><font color = "grey">Abbildung. Fragebogenstatus von Personen zu T2 im Vergleich zu deren Fragebogenstatus zu T1. Die Darstellung umfasst nur Fälle der Medizinischen Teilstudie. Es werden nur die Fälle berücksichtigt, welche bereits eine Einladung zu T2 erhalten haben (Potential ist nicht berücksichtigt)</font><br><br>
+
+
+# Gesundheitsziele: Verlaufsdaten {.tabset}
+
+Für jedes Gesundheitsziel und für jeden Messzeitpunkt werden nachfolgend die Rückläufe visualisiert. Dabei wird farblich zwischen *abgebrochenen*, *gesperrten ohne Aufruf*, *gesperrt mit Aufruf*, *nicht gestartet*, *offene Ankündigung* und *beendet* unterschieden. Es werden nur die absoluten Häufigkeiten präsentiert. Die aktuelle Zahlen, die in der Legende angegeben sind, auf dem Survey-Monitoring vom `r max(fragebogen$Datum)`. Neben der aktuellen Anzahl wird die Änderung zum Fragebogenexport, der 4 Zeitpunkte in der Vergangenheit (entspricht ca. 1 Woche, da alle 2 Tage ein neues Survey ausgegeben wird) lag mit angegeben.
+Zu T0 kann es vorkommen, dass die Zahl der beendeten höher sein, als die Zahl der randomisierten. Dies begründet sich daran, dass zu T0 Personen den Fragebogen ausfüllen konnte, bevor sie randomisiert wurden. Haben diese Personen danach den Fragebogen nicht mehr aufgerufen, gilt der Fragebogen zu T0 zwar als beendet, die Person fällt dann aber aus der Studie raus.
+
+```{r labelling data for plots}
+#### Gesamstudie ####
+.labelling_data <- fragebogen %>% 
+  filter(Messung == max(Messung) | Messung == max(Messung)-4) %>% 
+  filter(Status == "geschlossene FB") %>% 
+  filter(IG_KG == "Alle Fälle") %>% 
+  filter(Label != "versendete Ankündigungen") %>%
+  rename(anz = n) %>% 
+  group_by(Messung, GZ, MZP, Label) %>% 
+  count(anz) %>%
+  mutate(n = ifelse(is.na(anz), 0, anz)) %>% 
+  dplyr::select(-anz) %>%
+  pivot_wider(names_from = Messung, values_from = n, 
+              names_prefix = c("vorher", "nachher")) %>%
+  rename(vorher = starts_with("vorher"), nachher = starts_with("nachher")) %>% 
+  mutate(change = nachher - vorher) %>% 
+  dplyr::select(-vorher) %>% rename(n = nachher) %>% 
+  mutate(n2 = paste("n = ", n, "", sep = "")) %>%
+  mutate(change2 = paste("[", change, "]", sep = "")) %>% 
+  unite(., Label, Label, n2, sep = "\n", remove = F) %>% 
+  unite(., Label, Label, change2, sep = " ", remove = F) %>% 
+  ungroup() %>% 
+  mutate(Label = gsub("abgebrochen", "FB nicht beendet", Label))
+
+#### Allg. Onlinestudie ####
+.labelling_data_AO <- fragebogen %>% 
+  filter(Messung == max(Messung) | Messung == max(Messung)-4) %>% 
+  filter(Status == "geschlossene FB") %>% 
+  filter(Studie == "Allg. Onlinestudie") %>% 
+  filter(Label != "versendete Ankündigungen") %>%
+  group_by(Messung, GZ, MZP, Label) %>% 
+  summarise(n = sum(n)) %>%
+  mutate(n = ifelse(is.na(n), 0, n)) %>%
+  # dplyr::select(-nn) %>% 
+  pivot_wider(names_from = Messung, values_from = n, 
+              names_prefix = c("vorher", "nachher")) %>%
+  rename(vorher = starts_with("vorher"), nachher = starts_with("nachher")) %>% 
+  mutate(change = nachher - vorher) %>% 
+  dplyr::select(-vorher) %>% rename(n = nachher) %>% 
+  mutate(n2 = paste("n = ", n, "", sep = "")) %>%
+  mutate(change2 = paste("[", change, "]", sep = "")) %>% 
+  unite(., Label, Label, n2, sep = "\n", remove = F) %>% 
+  unite(., Label, Label, change2, sep = " ", remove = F) %>% 
+  ungroup() %>% 
+  mutate(Label = gsub("abgebrochen", "FB nicht beendet", Label))
+
+#### Med. Teilstudie ####
+.labelling_data_MT <- fragebogen %>% 
+  filter(Messung == max(Messung) | Messung == max(Messung)-4) %>% 
+  filter(Status == "geschlossene FB") %>% 
+  filter(Studie == "Med. Teilstudie") %>% 
+  filter(Label != "versendete Ankündigungen") %>%
+  group_by(Messung, GZ, MZP, Label) %>% 
+  summarise(n = sum(n)) %>%
+  mutate(n = ifelse(is.na(n), 0, n)) %>%
+  # dplyr::select(-nn) %>% 
+  pivot_wider(names_from = Messung, values_from = n, 
+              names_prefix = c("vorher", "nachher")) %>%
+  rename(vorher = starts_with("vorher"), nachher = starts_with("nachher")) %>% 
+  mutate(change = nachher - vorher) %>% 
+  dplyr::select(-vorher) %>% rename(n = nachher) %>% 
+  mutate(n2 = paste("n = ", n, "", sep = "")) %>%
+  mutate(change2 = paste("[", change, "]", sep = "")) %>% 
+  unite(., Label, Label, n2, sep = "\n", remove = F) %>% 
+  unite(., Label, Label, change2, sep = " ", remove = F) %>% 
+  ungroup() %>% 
+  mutate(Label = gsub("abgebrochen", "FB nicht beendet", Label))
+  
+```
+
+
+## Abnehmen {.tabset}
+
+
+### Komplette Studie
+```{r, fig.width=10, fig.height=16}
+
+#### T0 ####
+
+.plot_ac_t0 <- plotting(fragebogen, gz = "AC", mzp = "T0", 
+                        study = "Gesamt", 
+                        labeldata = .labelling_data) +
+  labs(x = "Datum",
+       y = "Anzahl an Fälle",
+       fill = "Aktueller Stand:",
+       title = "Gesundheitsziel: Abnehmen\nFragebogenstatus")
+
+
+#### T1 ####
+
+.plot_ac_t1 <- plotting(fragebogen, gz = "AC", mzp = "T1", 
+                        study = "Gesamt", 
+                        labeldata = .labelling_data) +
+  labs(x = "Datum",
+       y = "Anzahl an Fälle",
+       fill = "Aktueller Stand:",
+       title = "Gesundheitsziel: Abnehmen\nFragebogenstatus")
+
+#### T2 ####
+
+.plot_ac_t2 <- plotting(fragebogen, gz = "AC", mzp = "T2", 
+                        study = "Gesamt", 
+                        labeldata = .labelling_data) +
+  labs(x = "Datum",
+       y = "Anzahl an Fälle",
+       fill = "Aktueller Stand:",
+       title = "Gesundheitsziel: Abnehmen\nFragebogenstatus")
+
+#### T3 ####
+
+.plot_ac_t3 <- plotting(fragebogen, gz = "AC", mzp = "T3", 
+                        study = "Gesamt", 
+                        labeldata = .labelling_data) +
+  labs(x = "Datum",
+       y = "Anzahl an Fälle",
+       fill = "Aktueller Stand:",
+       title = "Gesundheitsziel: Abnehmen\nFragebogenstatus")
+
+plot_grid(.plot_ac_t0, .plot_ac_t1, .plot_ac_t2, .plot_ac_t3, ncol = 1)
+
+```
+
+
+
+### Allg. Onlinestudie
+```{r, fig.width=10, fig.height=16}
+
+#### T0 ####
+
+.plot_ac_t0 <- plotting(fragebogen, gz = "AC", mzp = "T0", 
+                        study = "Allg. Onlinestudie", 
+                        labeldata = .labelling_data_AO) +
+  labs(x = "Datum",
+       y = "Anzahl an Fälle",
+       fill = "Aktueller Stand:",
+       title = "Gesundheitsziel: Abnehmen\nFragebogenstatus")
+
+#### T1 ####
+
+.plot_ac_t1 <- plotting(fragebogen, gz = "AC", mzp = "T1", 
+                        study = "Allg. Onlinestudie", 
+                        labeldata = .labelling_data_AO) +
+  labs(x = "Datum",
+       y = "Anzahl an Fälle",
+       fill = "Aktueller Stand:",
+       title = "Gesundheitsziel: Abnehmen\nFragebogenstatus")
+
+#### T2 ####
+
+.plot_ac_t2 <- plotting(fragebogen, gz = "AC", mzp = "T2", 
+                        study = "Allg. Onlinestudie", 
+                        labeldata = .labelling_data_AO) +
+  labs(x = "Datum",
+       y = "Anzahl an Fälle",
+       fill = "Aktueller Stand:",
+       title = "Gesundheitsziel: Abnehmen\nFragebogenstatus")
+
+#### T3 ####
+
+.plot_ac_t3 <- plotting(fragebogen, gz = "AC", mzp = "T3", 
+                        study = "Allg. Onlinestudie", 
+                        labeldata = .labelling_data_AO) +
+  labs(x = "Datum",
+       y = "Anzahl an Fälle",
+       fill = "Aktueller Stand:",
+       title = "Gesundheitsziel: Abnehmen\nFragebogenstatus")
+
+plot_grid(.plot_ac_t0, .plot_ac_t1, .plot_ac_t2, .plot_ac_t3, ncol = 1)
+
+```
+
+
+
+### Med. Teilstudie
+```{r, fig.width=10, fig.height=16}
+
+#### T0 ####
+
+.plot_ac_t0 <- plotting(fragebogen, gz = "AC", mzp = "T0", 
+                        study = "Med. Teilstudie", 
+                        labeldata = .labelling_data_MT) +
+  labs(x = "Datum",
+       y = "Anzahl an Fälle",
+       fill = "Aktueller Stand:",
+       title = "Gesundheitsziel: Abnehmen\nFragebogenstatus")
+
+#### T1 ####
+
+.plot_ac_t1 <- plotting(fragebogen, gz = "AC", mzp = "T1", 
+                        study = "Med. Teilstudie", 
+                        labeldata = .labelling_data_MT) +
+  labs(x = "Datum",
+       y = "Anzahl an Fälle",
+       fill = "Aktueller Stand:",
+       title = "Gesundheitsziel: Abnehmen\nFragebogenstatus")
+
+#### T2 ####
+
+.plot_ac_t2 <- plotting(fragebogen, gz = "AC", mzp = "T2", 
+                        study = "Med. Teilstudie", 
+                        labeldata = .labelling_data_MT) +
+  labs(x = "Datum",
+       y = "Anzahl an Fälle",
+       fill = "Aktueller Stand:",
+       title = "Gesundheitsziel: Abnehmen\nFragebogenstatus")
+
+#### T3 ####
+
+.plot_ac_t3 <- plotting(fragebogen, gz = "AC", mzp = "T3", 
+                        study = "Med. Teilstudie", 
+                        labeldata = .labelling_data_MT) +
+  labs(x = "Datum",
+       y = "Anzahl an Fälle",
+       fill = "Aktueller Stand:",
+       title = "Gesundheitsziel: Abnehmen\nFragebogenstatus")
+
+plot_grid(.plot_ac_t0, .plot_ac_t1, .plot_ac_t2, .plot_ac_t3, ncol = 1)
+
+```
+
+
+
+## Fitness {.tabset}
+
+### Komplette Studie
+```{r, fig.width=10, fig.height=16}
+
+#### T0 ####
+
+.plot_fc_t0 <- plotting(fragebogen, gz = "FC", mzp = "T0", 
+                        study = "Gesamt", 
+                        labeldata = .labelling_data) +
+  labs(x = "Datum",
+       y = "Anzahl an Fälle",
+       fill = "Aktueller Stand:",
+       title = "Gesundheitsziel: Fitness\nFragebogenstatus")
+
+
+#### T1 ####
+
+.plot_fc_t1 <- plotting(fragebogen, gz = "FC", mzp = "T1", 
+                        study = "Gesamt", 
+                        labeldata = .labelling_data) +
+  labs(x = "Datum",
+       y = "Anzahl an Fälle",
+       fill = "Aktueller Stand:",
+       title = "Gesundheitsziel: Fitness\nFragebogenstatus")
+
+#### T2 ####
+
+.plot_fc_t2 <- plotting(fragebogen, gz = "FC", mzp = "T2", 
+                        study = "Gesamt", 
+                        labeldata = .labelling_data) +
+  labs(x = "Datum",
+       y = "Anzahl an Fälle",
+       fill = "Aktueller Stand:",
+       title = "Gesundheitsziel: Fitness\nFragebogenstatus")
+
+#### T3 ####
+
+.plot_fc_t3 <- plotting(fragebogen, gz = "FC", mzp = "T3", 
+                        study = "Gesamt", 
+                        labeldata = .labelling_data) +
+  labs(x = "Datum",
+       y = "Anzahl an Fälle",
+       fill = "Aktueller Stand:",
+       title = "Gesundheitsziel: Fitness\nFragebogenstatus")
+
+plot_grid(.plot_fc_t0, .plot_fc_t1, .plot_fc_t2, .plot_fc_t3, ncol = 1)
+```
+
+
+### Allg. Onlinestudie
+```{r, fig.width=10, fig.height=16}
+
+#### T0 ####
+
+.plot_fc_t0 <- plotting(fragebogen, gz = "FC", mzp = "T0", 
+                        study = "Allg. Onlinestudie", 
+                        labeldata = .labelling_data_AO) +
+  labs(x = "Datum",
+       y = "Anzahl an Fälle",
+       fill = "Aktueller Stand:",
+       title = "Gesundheitsziel: Fitness\nFragebogenstatus")
+
+#### T1 ####
+
+.plot_fc_t1 <- plotting(fragebogen, gz = "FC", mzp = "T1", 
+                        study = "Allg. Onlinestudie", 
+                        labeldata = .labelling_data_AO) +
+  labs(x = "Datum",
+       y = "Anzahl an Fälle",
+       fill = "Aktueller Stand:",
+       title = "Gesundheitsziel: Fitness\nFragebogenstatus")
+
+#### T2 ####
+
+.plot_fc_t2 <- plotting(fragebogen, gz = "FC", mzp = "T2", 
+                        study = "Allg. Onlinestudie", 
+                        labeldata = .labelling_data_AO) +
+  labs(x = "Datum",
+       y = "Anzahl an Fälle",
+       fill = "Aktueller Stand:",
+       title = "Gesundheitsziel: Fitness\nFragebogenstatus")
+
+#### T3 ####
+
+.plot_fc_t3 <- plotting(fragebogen, gz = "FC", mzp = "T3", 
+                        study = "Allg. Onlinestudie", 
+                        labeldata = .labelling_data_AO) +
+  labs(x = "Datum",
+       y = "Anzahl an Fälle",
+       fill = "Aktueller Stand:",
+       title = "Gesundheitsziel: Fitness\nFragebogenstatus")
+
+plot_grid(.plot_fc_t0, .plot_fc_t1, .plot_fc_t2, .plot_fc_t3, ncol = 1)
+
+```
+
+
+
+### Med. Teilstudie
+```{r, fig.width=10, fig.height=16}
+
+#### T0 ####
+
+.plot_fc_t0 <- plotting(fragebogen, gz = "FC", mzp = "T0", 
+                        study = "Med. Teilstudie", 
+                        labeldata = .labelling_data_MT) +
+  labs(x = "Datum",
+       y = "Anzahl an Fälle",
+       fill = "Aktueller Stand:",
+       title = "Gesundheitsziel: Fitness\nFragebogenstatus")
+
+#### T1 ####
+
+.plot_fc_t1 <- plotting(fragebogen, gz = "FC", mzp = "T1", 
+                        study = "Med. Teilstudie", 
+                        labeldata = .labelling_data_MT) +
+  labs(x = "Datum",
+       y = "Anzahl an Fälle",
+       fill = "Aktueller Stand:",
+       title = "Gesundheitsziel: Fitness\nFragebogenstatus")
+
+#### T2 ####
+
+.plot_fc_t2 <- plotting(fragebogen, gz = "FC", mzp = "T2", 
+                        study = "Med. Teilstudie", 
+                        labeldata = .labelling_data_MT) +
+  labs(x = "Datum",
+       y = "Anzahl an Fälle",
+       fill = "Aktueller Stand:",
+       title = "Gesundheitsziel: Fitness\nFragebogenstatus")
+
+#### T3 ####
+
+.plot_fc_t3 <- plotting(fragebogen, gz = "FC", mzp = "T3", 
+                        study = "Med. Teilstudie", 
+                        labeldata = .labelling_data_MT) +
+  labs(x = "Datum",
+       y = "Anzahl an Fälle",
+       fill = "Aktueller Stand:",
+       title = "Gesundheitsziel: Fitness\nFragebogenstatus")
+
+plot_grid(.plot_fc_t0, .plot_fc_t1, .plot_fc_t2, .plot_fc_t3, ncol = 1)
+
+```
+
+## Nichtrauchen {.tabset}
+
+Im Gesundheitsziel gibt es nur eine Studie. Daher wird nachfolgend nicht zwischen Teilstichproben unterschieden.
+
+```{r, fig.width=10, fig.height=16}
+
+#### T0 ####
+
+.plot_nc_t0 <- plotting(fragebogen, gz = "NC", mzp = "T0", 
+                        study = "Gesamt", 
+                        labeldata = .labelling_data) +
+  labs(x = "Datum",
+       y = "Anzahl an Fälle",
+       fill = "Aktueller Stand:",
+       title = "Gesundheitsziel: Nichtrauchen\nFragebogenstatus")
+
+
+#### T1 ####
+
+.plot_nc_t1 <- plotting(fragebogen, gz = "NC", mzp = "T1", 
+                        study = "Gesamt", 
+                        labeldata = .labelling_data) +
+  labs(x = "Datum",
+       y = "Anzahl an Fälle",
+       fill = "Aktueller Stand:",
+       title = "Gesundheitsziel: Nichtrauchen\nFragebogenstatus")
+
+#### T2 ####
+
+.plot_nc_t2 <- plotting(fragebogen, gz = "NC", mzp = "T2", 
+                        study = "Gesamt", 
+                        labeldata = .labelling_data) +
+  labs(x = "Datum",
+       y = "Anzahl an Fälle",
+       fill = "Aktueller Stand:",
+       title = "Gesundheitsziel: Nichtrauchen\nFragebogenstatus")
+
+#### T3 ####
+
+.plot_nc_t3 <- plotting(fragebogen, gz = "NC", mzp = "T3", 
+                        study = "Gesamt", 
+                        labeldata = .labelling_data) +
+  labs(x = "Datum",
+       y = "Anzahl an Fälle",
+       fill = "Aktueller Stand:",
+       title = "Gesundheitsziel: Nichtrauchen\nFragebogenstatus")
+
+plot_grid(.plot_nc_t0, .plot_nc_t1, .plot_nc_t2, .plot_nc_t3, ncol = 1)
+```
+
+
+```{r}
+# # Grafik als große Datei ausgeben
+# svg("Survey Plot.svg", width = 20, height = 20)
+# plot_grid(
+# plot_grid(.plot_ac_t0, .plot_ac_t1, .plot_ac_t2, .plot_ac_t3, ncol = 2),
+# plot_grid(.plot_fc_t0, .plot_fc_t1, .plot_fc_t2, .plot_fc_t3, ncol = 2),
+# plot_grid(.plot_nc_t0, .plot_nc_t1, .plot_nc_t2, .plot_nc_t3, ncol = 2),
+# ncol = 1
+# )
+# dev.off()
+
+```
+
+
+
+
+
+# Sperrfrist
+
+```{r}
+sperre <- fragebogen %>% 
+  filter(grepl("^abgebrochen", Label) | grepl("^nicht gestartet", Label))
+```
+
+Unter Sperrfrist werden Informationen mit direktem Bezug zu der, nach 56 Tagen automatisch auftretenden Sperre des Fragebogens präsentiert. Dazu zählt der zeitliche Status der noch offenen Fragebögen ($\to$ Verstrichene Zeit). Zur Darstellung wird ein Histrogram genutzt, welches die Häufigkeiten der noch offenen Fragebögen anhand der verstrichenen Zeit nach Erhalt der Einladung anzeigt.
+
+Weiterhin werden die aktuellen Häufigkeiten für den Fragebogenstatus *abgebrochen* (t[x]_a) und *nicht geöffnet* (t[x]_ng) insgesamt sowie unterteilt nach Subkategorien, welche die Häufigkeiten für 0 Wochen, nach 2 Wochen und nach 6 Wochen (t[x]_a0, t[x]_a2, t[x]_a6; bzw. t[x]_ng0, t[x]_ng2, t[x]_ng6) angeben, dargestellt ($\to$ Aktuelle Zahlen). Die Unterteilungen entsprechen den in der Studie versendeten Erinnerungsmails, wobei der 6-Wochen-Status später aufgrund der hohen Zahlen im Status *nicht gestartet* hinzugefügt wurde, um den Rücklauf nochmal zu erhöhen.
+
+Als Drittes wird der Kategorienwechsel pro Kalenderwoche präsentiert ($\to$ Kategorienwechsel). Hier wird dargestellt, wie viele Fälle aus dem Potential entweder automatisch in die Kategorie *gesperrt* oder aktiv in die Kategorie *beendet* wechselten.
+
+## Verstrichene Zeit {.tabset}
+
+Nachfolgend wird dargestellt, wie der zeitliche Status der Personen ist, die ihren Fragebogen noch nicht beendet haben bzw. gesperrt wurden. Sobald Personen eine Einladung erhalten haben sie ingesamt 56 Tage Zeit, den Fragebogen auszufüllen. Sollte der 56. Tag verstrichen sein, wird der Fragebogen für die Person gesperrt.
+
+Diese Darstellung hilft abzuschätzen, wie viele Leute in der nächsten Zeit in die gesperrt-Kategorie fallen werden (s. Abschnitt Kategorienwechsel). Alle hier abgebildeten Fälle stellen das Potential dar, dass bereits eine Einladung erhalten hat, d.h. Fälle bei denen noch eine offene Ankündigung (t[x]_ok) vorliegt, werden hier nicht mit abgebildet.
+
+In der Abbildung sind alle Fälle zusammengefasst, welche den Fragebogen erhalten und nicht gestartet haben (t[x]_ng) oder erhalten, gestartet aber nicht beendet haben (t[x]_a).Es werden nur Messzeitpunkte gezeigt, bei denen noch nicht final alle Fragebögen durchgelaufen sind.
+
+### Abnehmen
+```{r, fig.width=10, fig.height=6}
+
+zeitverlauf <- merge(raw_survey[[length(raw_survey)]],
+      .med.studie_Ids, by = "Id", all = T) %>% 
+  mutate(Studie = ifelse(is.na(Studie), "Allg. Onlinestudie", Studie))
+
+plot_grid(
+  ggdraw() + draw_label("Verstrichene Zeit seit Einladung zur Studie\nGesundheitsziel: Abnehmen", 
+                        fontface='bold'),
+  ggdraw() + draw_label("Nur Fälle, welche noch nicht gesperrt wurden oder beendet haben. Nach Tag 56 erfolgt automatische Sperrung."),
+  zeitverlauf %>% 
+    filter(GZ == "AC") %>%
+    filter(is.na(t1_beendet)) %>% 
+    filter(t1_Tage_verstrichen < 56) %>% 
+    ggplot(., aes(x = t1_Tage_verstrichen, fill = Studie)) +
+    facet_grid("T1"~ .) +
+    geom_histogram(binwidth = 1, color = "black") +
+    scale_fill_manual(values = c("#3366CC", "#FF9933")) +
+    scale_x_continuous(limits = c(-1, 58), breaks = seq(0,56, 7)) +
+    labs(x = "",
+         y = "Anzahl an Personen") +
+    theme_bw() +
+    theme(axis.text = element_text(size = 12, color = "black"),
+          axis.title = element_text(size = 13, color = "black"),
+          plot.title = element_text(size = 15, color = "black"),
+          strip.text = element_text(size = 15, color = "black")),
+  zeitverlauf %>% 
+    filter(GZ == "AC") %>% 
+    filter(is.na(t2_beendet)) %>% 
+    filter(t2_Tage_verstrichen < 56) %>% 
+    ggplot(., aes(x = t2_Tage_verstrichen, fill = Studie)) +
+    facet_grid("T2"~ .) +
+    geom_histogram(binwidth = 1, color = "black") +
+    scale_fill_manual(values = c("#3366CC", "#FF9933")) +
+    scale_x_continuous(limits = c(-1, 58), breaks = seq(0,56, 7)) +
+    labs(x = "Tage verstichen seit erhalt der FB-Ankündigung",
+         y = "Anzahl an Personen") +
+    theme_bw() +
+    theme(axis.text = element_text(size = 12, color = "black"),
+          axis.title = element_text(size = 13, color = "black"),
+          strip.text = element_text(size = 15, color = "black")),
+  nrow = 4, 
+  rel_heights = c(0.075, 0.05, 0.49, 0.49)
+)
+```
+<br><font color = "grey">*Abbildung.* Anzahl an noch nicht beendeten und nicht geöffneten Fragebögen (Potential) nach verstrichener Zeit nach Erhalt der Fragebogen-Einladung für das Gesundheitsziel Abnehmen. Es werden nur Messzeitpunkte präsentiert, an denen noch offene Fragebögen vorliegen. Beendete und gesperrte Fragebögen werden nicht abgebildet. Nach Tag 56 erfolgt eine automatische Sperrung des Fragebogen-Links, daher werden hier keine Werte mehr angezeigt, da es sich um verstrichene Zeit handelt. Farblich getrennt wird nach Studientyp.</font><br><br>
+
+### Fitness
+```{r, fig.width=10, fig.height=6}
+plot_grid(
+  ggdraw() + draw_label("Verstrichene Zeit seit Einladung zur Studie\nGesundheitsziel: Fitness", 
+                        fontface='bold'),
+  ggdraw() + draw_label("Nur Fälle, welche noch nicht gesperrt wurden oder beendet haben. Nach Tag 56 erfolgt automatische Sperrung."),
+  zeitverlauf %>% 
+    filter(GZ == "FC") %>%
+    filter(is.na(t1_beendet)) %>% 
+    filter(t1_Tage_verstrichen < 56) %>% 
+    ggplot(., aes(x = t1_Tage_verstrichen, fill = Studie)) +
+    facet_grid("T1"~ .) +
+    geom_histogram(binwidth = 1, color = "black") +
+    scale_fill_manual(values = c("#3366CC", "#FF9933")) +
+    scale_x_continuous(limits = c(-1, 58), breaks = seq(0,56, 7)) +
+    labs(x = "",
+         y = "Anzahl an Personen") +
+    theme_bw() +
+    theme(axis.text = element_text(size = 12, color = "black"),
+          axis.title = element_text(size = 13, color = "black"),
+          plot.title = element_text(size = 15, color = "black"),
+          strip.text = element_text(size = 15, color = "black")),
+  zeitverlauf %>% 
+    filter(GZ == "FC") %>% 
+    filter(is.na(t2_beendet)) %>% 
+    filter(t2_Tage_verstrichen < 56) %>% 
+    ggplot(., aes(x = t2_Tage_verstrichen, fill = Studie)) +
+    facet_grid("T2"~ .) +
+    geom_histogram(binwidth = 1, color = "black") +
+    scale_fill_manual(values = c("#3366CC", "#FF9933")) +
+    scale_x_continuous(limits = c(-1, 58), breaks = seq(0,56, 7)) +
+    labs(x = "Tage verstichen seit erhalt der FB-Ankündigung",
+         y = "Anzahl an Personen") +
+    theme_bw() +
+    theme(axis.text = element_text(size = 12, color = "black"),
+          axis.title = element_text(size = 13, color = "black"),
+          strip.text = element_text(size = 15, color = "black")),
+  nrow = 4, 
+  rel_heights = c(0.075, 0.05, 0.49, 0.49)
+)
+```
+<br><font color = "grey">*Abbildung.* Anzahl an noch nicht beendeten und nicht geöffneten Fragebögen (Potential) nach verstrichener Zeit nach Erhalt der Fragebogen-Einladung für das Gesundheitsziel Fitness. Es werden nur Messzeitpunkte präsentiert, an denen noch offene Fragebögen vorliegen. Beendete und gesperrte Fragebögen werden nicht abgebildet. Nach Tag 56 erfolgt eine automatische Sperrung des Fragebogen-Links, daher werden hier keine Werte mehr angezeigt, da es sich um verstrichene Zeit handelt. Farblich getrennt wird nach Studientyp.</font><br><br>
+
+### Nichtrauchen
+```{r, fig.width=10, fig.height=6}
+plot_grid(
+  ggdraw() + draw_label("Verstrichene Zeit seit Einladung zur Studie\nGesundheitsziel: Nichtrauchen", 
+                        fontface='bold'),
+  ggdraw() + draw_label("Nur Fälle, welche noch nicht gesperrt wurden oder beendet haben. Nach Tag 56 erfolgt automatische Sperrung."),
+  zeitverlauf %>% 
+    filter(GZ == "NC") %>%
+    filter(is.na(t1_beendet)) %>% 
+    filter(t1_Tage_verstrichen < 56) %>% 
+    ggplot(., aes(x = t1_Tage_verstrichen, fill = Studie)) +
+    facet_grid("T1"~ .) +
+    geom_histogram(binwidth = 1, color = "black") +
+    scale_fill_manual(values = c("#3366CC", "#FF9933")) +
+    scale_x_continuous(limits = c(-1, 58), breaks = seq(0,56, 7)) +
+    labs(x = "",
+         y = "Anzahl an Personen") +
+    theme_bw() +
+    theme(axis.text = element_text(size = 12, color = "black"),
+          axis.title = element_text(size = 13, color = "black"),
+          plot.title = element_text(size = 15, color = "black"),
+          strip.text = element_text(size = 15, color = "black")),
+  zeitverlauf %>% 
+    filter(GZ == "NC") %>% 
+    filter(is.na(t2_beendet)) %>% 
+    filter(t2_Tage_verstrichen < 56) %>% 
+    ggplot(., aes(x = t2_Tage_verstrichen, fill = Studie)) +
+    facet_grid("T2"~ .) +
+    geom_histogram(binwidth = 1, color = "black") +
+    scale_x_continuous(limits = c(-1, 58), breaks = seq(0,56, 7)) +
+    scale_fill_manual(values = c("#3366CC", "#FF9933")) +
+    labs(x = "Tage verstichen seit erhalt der FB-Ankündigung",
+         y = "Anzahl an Personen") +
+    theme_bw() +
+    theme(axis.text = element_text(size = 12, color = "black"),
+          axis.title = element_text(size = 13, color = "black"),
+          strip.text = element_text(size = 15, color = "black")),
+  nrow = 4, 
+  rel_heights = c(0.075, 0.05, 0.49, 0.49)
+)
+```
+<br><font color = "grey">*Abbildung.* Anzahl an noch nicht beendeten und nicht geöffneten Fragebögen (Potential) nach verstrichener Zeit nach Erhalt der Fragebogen-Einladung für das Gesundheitsziel Nichtrauchen Es werden nur Messzeitpunkte präsentiert, an denen noch offene Fragebögen vorliegen. Beendete und gesperrte Fragebögen werden nicht abgebildet. Nach Tag 56 erfolgt eine automatische Sperrung des Fragebogen-Links, daher werden hier keine Werte mehr angezeigt, da es sich um verstrichene Zeit handelt. Im Gesundheitsziel Nichtrauchen gab es nur einen einzigen Studientyp.</font><br><br>
+
+## Aktuelle Zahlen {.tabset}
+
+Nachfolgend die relativen und absoluten (in Klammern) Häufigkeiten für die Kategorien *Fragebogen nicht beendet* (t[x]_a) und Fragebogen nicht geöffnet (t[x]_ng) sowie deren Subkategorien, welche die Häufigkeiten nach Zeit einteilen (nach 0 Wochen, nach 2 Wochen und nach 6 Wochen).
+
+### Abgebrochen
+
+```{r, fig.width=10, fig.height=9}
+
+sperre %>% 
+  filter(Datum == max(Datum)) %>% 
+  filter(Studie == "Gesamtstichprobe") %>% 
+  filter(grepl("^abgebrochen", Label)) %>%
+  group_by(GZ, MZP, Status) %>% 
+  mutate(p = n / sum(n)*100) %>% 
+  ggplot(., aes(x = Label, y = n, fill = GZ)) +
+  facet_wrap(~MZP, ncol = 1) +
+  geom_bar(stat = "identity", position = position_dodge(width = .9)) +
+  geom_vline(aes(xintercept = 1.5)) +
+  geom_text(aes(y = -25,
+                label = paste(round(p), "%", 
+                              sep = "", paste("\n(",n, ")", sep = ""))), 
+            size = 3,
+            position = position_dodge2(width = .9, preserve = "single")) +
+  scale_fill_manual(values = c("#FF9966","#336699", "#006600"),
+                    labels = c(paste("Abnehmen"),
+                               paste("Fitness"),
+                               paste("Nichtrauchen"))) +
+  scale_y_continuous(limits = c(-40, 75), breaks = seq(0, 75, 15)) +
+  theme_bw() +
+  labs(x = "Datum",
+       y = "Anzahl an Fälle",
+       fill = "Gesundheitsziel",
+       title = "Fragebogenstatus \"abgebrochen\"") +
+  theme(axis.text = element_text(size = 12, color = "black"),
+        axis.title = element_text(size = 13, color = "black"),
+        strip.text = element_text(size = 14, color = "black"),
+        legend.text = element_text(size = 12, color = "black"),
+        legend.position = "bottom")
+```
+<br><font color = "grey">*Abbildung.* Häufigkeit des Fragebogenstatus "Abgebrochen" für alle Messzeitpunkte und Gesundheitsziele. In der von der vertikalen Linie abgegrenzten linken Grafik wird die Gesamtanzahl angezeigt. Im rechten Teil wird diese Gesamtzahl in unterschiedliche Zeiträume aufgeschlüsselt. Die Prozentwerte im rechten Grafikteil beziehen sich auf die Gesamtmenge im linken Teil.</font><br><br>
+
+
+
+### Nicht gestartet
+
+```{r, fig.width=10, fig.height=9}
+
+sperre %>% 
+  filter(Datum == max(Datum)) %>% 
+  filter(Studie == "Gesamtstichprobe") %>% 
+  filter(grepl("^nicht", Label)) %>%
+  group_by(GZ, MZP, Status) %>% 
+  mutate(p = n / sum(n)*100) %>% 
+  ggplot(., aes(x = Label, y = n, fill = GZ)) +
+  facet_wrap(~MZP, ncol = 1) +
+  geom_bar(stat = "identity", position = position_dodge(width = .9)) +
+  geom_vline(aes(xintercept = 1.5)) +
+  geom_text(aes(y = -70,
+                label = paste(round(p), "%", 
+                              sep = "", paste("\n(",n, ")", sep = ""))), 
+            size = 3,
+            position = position_dodge2(width = .9, preserve = "single")) +
+  scale_fill_manual(values = c("#FF9966","#336699", "#006600"),
+                    labels = c(paste("Abnehmen"),
+                               paste("Fitness"),
+                               paste("Nichtrauchen"))) +
+  scale_y_continuous(limits = c(-125, 500), breaks = seq(0, 500, 100)) +
+  theme_bw() +
+  labs(x = "Datum",
+       y = "Anzahl an Fälle",
+       fill = "Gesundheitsziel",
+       title = "Fragebogenstatus \"nicht gestartet\"") +
+  theme(axis.text = element_text(size = 12, color = "black"),
+        axis.title = element_text(size = 13, color = "black"),
+        strip.text = element_text(size = 14, color = "black"),
+        legend.text = element_text(size = 12, color = "black"),
+        legend.position = "bottom")
+```
+<br><font color = "grey">*Abbildung.* Häufigkeit des Fragebogenstatus "Nicht gestartet" für alle Messzeitpunkte und Gesundheitsziele. In der von der vertikalen Linie abgegrenzten linken Grafik wird die Gesamtanzahl angezeigt. Im rechten Teil wird diese Gesamtzahl in unterschiedliche Zeiträume aufgeschlüsselt. Die Prozentwerte im rechten Grafikteil beziehen sich auf die Gesamtmenge im linken Teil.</font><br><br>
+
+
+## Kategorienwechsel {.tabset}
+
+In diesem Teil wird dargestellt, wie und ob ein Kategorienwechsel vorliegt. Unter Kategorienwechsel wird in diesem Fall ein Wechsel zwischen unterschiedlichen Survey-Monitoring-Kategorien verstanden. zu diesen Kategorien zählen u.a. *beendet*, *gesperrt ohne Aufruf* oder auch *noch nicht gestartet*.
+
+Erhalten Personen einen Fragebogen, so verlassen sie damit automatisch die Kategorie *offene Ankündigung* und wechseln in eine andere Kategorie. Dieser Wechsel wird hier nicht abgebildet.
+
+Es wird nur der Wechsel zwischen den Kategorien *nicht geöffnet*, *gestartet und nicht beendet*, *beendet* und *gesperrt* dargestellt. Im Monitoring werden einige dieser Kategorien detaillierter Aufgeschlüsselt:
+
+* gesperrt: unterteilt sich in gesperrt ohne Aufruf (t[x]_g) und gesperrt mit Aufruf (t[x]_ga)
+* nicht geöffnet (t[x]_ng): unterteilt sich nach der Dauer in *nicht geöffnet 0 Wochen* (t[x]_ng0), *nicht geöffnet 2 Wochen* (t[x]_ng2) und *nicht geöffnet 6 Wochen* (t[x]_ng6)
+* geöffnet aber Fragebogen nicht beendet (t[x]_a): unterteilt sich ebenfalls nach der Dauer in *nicht beendet 0 Wochen* (t[x]_a0), *nicht beendet 2 Wochen* (t[x]_a2) und *nicht beendet 6 Wochen* (t[x]_a6)
+
+Personen können über die Zeit einen Kategorienwechsel innerhalb der Kategorien *nicht geöffnet* und *nicht beendet* vollbringen, der automatisch nach ablauf der Frist in die Kategorie *gesperrt ohne Aufruf* bzw. *gesperrt mit Aufruf* endet:
+
+$$t[x]_{a0} \to t[x]_{a2} \to t[x]_{a6} \to t[x]_{ga}$$
+
+$$t[x]_{ng0} \to t[x]_{ng2} \to t[x]_{ng6} \to t[x]_{g}$$
+
+Aber es kann auch ein manueller Wechsel stattfinden, indem eine Personen aktiv den Fragebogen ausfüllt und damit in die die Kategorie *beendet* fällt.
+
+Die Nachfolgende Visualisierung soll dabei helfen, die Anzahl sowie der Kategorienwechsel in einem spezifischen Zeitraum nachzuvollziehen. Als Auflösung wird dabei die Darstellung über eine Kalenderwoche gewählt. Eine kleine Auflösung hat sich als wenig ergiebig herausgestellt, da die absoluten Zahlen der Wechsel oftmals zu gering waren, um eine sinnvolle Interpretation zu ermöglichen. Als Startpunkt der Visualisierung wurde der Monat September und damit die 36. Kalenderwoche gewählt, da erst ab Mitte August erst so detaillierte Zahlen für das Monitoring vorlagen.
+
+Es besteht das Risiko, sollte ein Kategorienwechsel über das Wochenende stattfinden und gleichzeitig kein Survey Monitoring erfolgen (ungerade Wochentage), dieser nicht adäquat in abgebildet wird, da das Potential zu Beginn der Woche immer neu bestimmt wird. Ein solches Event ist jedoch in den Verlaufsdaten (Gesundheitsziele: Verlaufsdaten) nachzuvollziehen, sollte es auftreten.
+
+Es wird bei der Darstellung nur zwischen den Gesundheitszielen und Messzeitpunkten unterschieden und es findet keine weitere Unterscheidung zwischen Interventionsgruppe und Kontrollgruppe statt. Diese Entscheidung begründet sich darin, da es hier v.a. um das Monitoring der neuen Incentivierung geht und diese für beide Gruppen gilt.
+
+### Abnehmen {.tabset}
+
+#### T1
+```{r, fig.width=10, fig.height=8}
+
+surveyfull(raw_survey, Gesundheitsziel = "AC", Messzeitpunkt = "t1") %>%
+  group_by(week, status) %>%
+  summarise(Sum = sum(Sum)) %>%
+  ggplot(., aes(x = status, y = Sum,
+                           fill = status)) +
+  facet_wrap(~week, scales = "free") +
+  geom_bar(stat = "identity", position = position_dodge2(width = .9)) +
+  geom_text(aes(label = Sum), position = position_dodge2(width = .9)) +
+  labs(x = "",
+       y = "Anzahl an Personen",
+       fill = "verbleibt als",
+       title = "Kategorienwechsel innerhalb einer Kalenderwoche (GZ: Abnehmen, T1)",
+       subtitle = "Wichtig: diese Daten nicht als kontinuierlich über die Kalenderwochen interpretieren.\nEs handelt sich nur um Wechsel innerhalb der jeweiligen Kalenderwoche.") +
+  scale_fill_manual(values = c("grey70", "brown", "green")) +
+  theme_bw() +
+  theme(legend.position = "none")
+
+```
+
+#### T2
+```{r, fig.width=10, fig.height=6}
+
+surveyfull(raw_survey, Gesundheitsziel = "AC", Messzeitpunkt = "t2") %>% 
+  group_by(week, status) %>%
+  summarise(Sum = sum(Sum)) %>%
+  ggplot(., aes(x = status, y = Sum,
+                           fill = status)) +
+  facet_wrap(~week, scales = "free") +
+  geom_bar(stat = "identity", position = position_dodge2(width = .9)) +
+  geom_text(aes(label = Sum), position = position_dodge2(width = .9)) +
+  labs(x = "",
+       y = "Anzahl an Personen",
+       fill = "verbleibt als",
+       title = "Kategorienwechsel innerhalb einer Kalenderwoche (GZ: Abnehmen, T2)",
+       subtitle = "Wichtig: diese Daten nicht als kontinuierlich über die Kalenderwochen interpretieren.\nEs handelt sich nur um Wechsel innerhalb der jeweiligen Kalenderwoche.") +
+  scale_fill_manual(values = c("grey70", "brown", "green")) +
+  theme_bw() +
+  theme(legend.position = "none")
+
+```
+
+### Fitness {.tabset}
+
+#### T1
+
+```{r, fig.width=10, fig.height=8}
+
+surveyfull(raw_survey, Gesundheitsziel = "FC", Messzeitpunkt = "t1") %>% 
+  group_by(week, status) %>%
+  summarise(Sum = sum(Sum)) %>%
+  ggplot(., aes(x = status, y = Sum,
+                           fill = status)) +
+  facet_wrap(~week, scales = "free") +
+  geom_bar(stat = "identity", position = position_dodge2(width = .9)) +
+  geom_text(aes(label = Sum), position = position_dodge2(width = .9)) +
+  labs(x = "",
+       y = "Anzahl an Personen",
+       fill = "verbleibt als",
+       title = "Kategorienwechsel innerhalb einer Kalenderwoche (GZ: Fitness, T1)",
+       subtitle = "Wichtig: diese Daten nicht als kontinuierlich über die Kalenderwochen interpretieren.\nEs handelt sich nur um Wechsel innerhalb der jeweiligen Kalenderwoche.") +
+  scale_fill_manual(values = c("grey70", "brown", "green")) +
+  theme_bw() +
+  theme(legend.position = "none")
+
+```
+
+
+#### T2
+
+```{r, fig.width=10, fig.height=6}
+
+surveyfull(raw_survey, Gesundheitsziel = "FC", Messzeitpunkt = "t2") %>% 
+  group_by(week, status) %>%
+  summarise(Sum = sum(Sum)) %>%
+  ggplot(., aes(x = status, y = Sum,
+                           fill = status)) +
+  facet_wrap(~week, scales = "free") +
+  geom_bar(stat = "identity", position = position_dodge2(width = .9)) +
+  geom_text(aes(label = Sum), position = position_dodge2(width = .9)) +
+  labs(x = "",
+       y = "Anzahl an Personen",
+       fill = "verbleibt als",
+       title = "Kategorienwechsel innerhalb einer Kalenderwoche (GZ: Fitness, T2)",
+       subtitle = "Wichtig: diese Daten nicht als kontinuierlich über die Kalenderwochen interpretieren.\nEs handelt sich nur um Wechsel innerhalb der jeweiligen Kalenderwoche.") +
+  scale_fill_manual(values = c("grey70", "brown", "green")) +
+  theme_bw() +
+  theme(legend.position = "none")
+
+```
+
+### Nichtrauchen {.tabset}
+
+#### T1
+
+```{r, fig.width=10, fig.height=8}
+
+surveyfull(raw_survey, Gesundheitsziel = "NC", Messzeitpunkt = "t1") %>% 
+  group_by(week, status) %>%
+  summarise(Sum = sum(Sum)) %>%
+  ggplot(., aes(x = status, y = Sum,
+                           fill = status)) +
+  facet_wrap(~week, scales = "free") +
+  geom_bar(stat = "identity", position = position_dodge2(width = .9)) +
+  geom_text(aes(label = Sum), position = position_dodge2(width = .9)) +
+  labs(x = "",
+       y = "Anzahl an Personen",
+       fill = "verbleibt als",
+       title = "Kategorienwechsel innerhalb einer Kalenderwoche (GZ: Nichtrauchen, T1)",
+       subtitle = "Wichtig: diese Daten nicht als kontinuierlich über die Kalenderwochen interpretieren.\nEs handelt sich nur um Wechsel innerhalb der jeweiligen Kalenderwoche.") +
+  scale_fill_manual(values = c("grey70", "brown", "green")) +
+  theme_bw() +
+  theme(legend.position = "none")
+
+```
+
+#### T2
+
+```{r, fig.width=10, fig.height=6}
+
+surveyfull(raw_survey, Gesundheitsziel = "NC", Messzeitpunkt = "t2") %>% 
+  group_by(week, status) %>%
+  summarise(Sum = sum(Sum)) %>%
+  ggplot(., aes(x = status, y = Sum,
+                           fill = status)) +
+  facet_wrap(~week, scales = "free") +
+  geom_bar(stat = "identity", position = position_dodge2(width = .9)) +
+  geom_text(aes(label = Sum), position = position_dodge2(width = .9)) +
+  labs(x = "",
+       y = "Anzahl an Personen",
+       fill = "verbleibt als",
+       title = "Kategorienwechsel innerhalb einer Kalenderwoche (GZ: Nichtrauchen, T2)",
+       subtitle = "Wichtig: diese Daten nicht als kontinuierlich über die Kalenderwochen interpretieren.\nEs handelt sich nur um Wechsel innerhalb der jeweiligen Kalenderwoche.") +
+  scale_fill_manual(values = c("grey70", "brown", "green")) +
+  theme_bw() +
+  theme(legend.position = "none")
+
+```
+
+

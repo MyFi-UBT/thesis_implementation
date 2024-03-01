@@ -1,0 +1,10 @@
+imutils
+scikit-image
+numpy
+opencv-python
+pillow
+tensorflow-gpu==2.7.0
+random2
+lime
+pandas
+protobuf==3.15.5

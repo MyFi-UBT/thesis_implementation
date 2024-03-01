@@ -1,0 +1,30 @@
+{
+    "id": "6854BD82",
+    "path": "C:/Users/Adunedor/Desktop/Skript Intuition/Skript Intuition.Rmd",
+    "project_path": "Skript Intuition.Rmd",
+    "type": "r_markdown",
+    "hash": "3177615328",
+    "contents": "",
+    "dirty": false,
+    "created": 1655027543915.0,
+    "source_on_save": false,
+    "relative_order": 1,
+    "properties": {
+        "chunk_output_type": "console",
+        "source_window_id": "",
+        "Source": "Source",
+        "cursorPosition": "1874,0",
+        "scrollLine": "1801",
+        "last_setup_crc32": "1D023FA85ec743fa",
+        "docOutlineVisible": "1",
+        "rmdVisualCollapsedChunks": ""
+    },
+    "folds": "120|6|122|0|\n356|20|389|0|\n752|20|768|0|\n804|20|837|0|\n881|20|914|0|\n962|20|995|0|\n1042|20|1077|0|\n1091|6|1135|0|\n1567|20|1600|0|\n1829|6|1873|0|\n",
+    "lastKnownWriteTime": 1655037703,
+    "encoding": "UTF-8",
+    "collab_server": "",
+    "source_window": "",
+    "last_content_update": 1655037703866,
+    "read_only": false,
+    "read_only_alternatives": []
+}

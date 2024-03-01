@@ -1,0 +1,1464 @@
+---
+title: "Untitled"
+author: "Matthias Sehlbrede"
+date: '2022-06-10'
+output: 
+  html_document:
+    toc: true
+    toc_float:
+      collapsed: true
+    code_folding: hide
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+
+suppressPackageStartupMessages(if(!require(pacman)) {install.packages("pacman")})
+pacman::p_load(dplyr, tidyr, ggplot2, lme4, lmerTest, emmeans, performance, sjPlot, effectsize, MuMIn, cowplot, DT)
+knitr::opts_chunk$set(echo = TRUE, warning = F, fig.width = 10)
+```
+
+
+```{r}
+df <- read.csv2("Datensatz_Longformat.csv")
+```
+
+# Datenbearbeitung
+
+```{r}
+df$Abschluss <- as.factor(df$Abschluss)
+df$EXPERTE <- as.factor(df$EXPERTE)
+```
+
+
+
+# Auswertungen
+
+## 1.1 Quesi
+
+### a) Representation {.tabset}
+
+#### Modellspezifikation
+
+In diesem Modell fließen die Representation (Faktor mit 3 Stufen) als primärer Prädiktor auf Level 1 aufgenommen.
+
+```{r}
+mod_quesi_a<- lmer(QUESI ~ Representation + (1 | FBNUMMER), data = df)
+# R² nur für Representation
+R2_QUESI_a_MF <- MuMIn::r.squaredGLMM(mod_quesi_a)[[1]]
+```
+
+#### Ergebnis Gesammodell {.tabset}
+
+##### Anova-Tabelle
+
+In diesem Modell gibt nur nur einen einzigen Haupteffekt (Faktor Repräsentation mit 3 Stufen).
+
+Dieser Faktor wurde statistisch signifikant, *F*(2, 98) = 10.13, p < .001. Der Anteil erklärter Varianz betrug R² = `r round(R2_QUESI_a_MF, 3)` also rund 10%.
+
+```{r}
+anova(mod_quesi_a)
+```
+
+**FAZIT: Die Mittelwerte in QUESI unterscheiden sich signifikant nach der Repräsentation. Der Effekt kann "mittlerer Effekt" (Cohen, 1988) eingestuft werden..**
+
+
+##### Paarweise vergleiche
+
+Hier sind die paarweisen Vergleiche zwischen allen Bedingungen zu finden. Im oberen Teil des Outputs finden sich die geschätzten Mittelwerte aus dem Modell heraus mit ihren Standardfehler. Im unteren Teile wird für jedes Paar eine Differenz bestimmt.
+
+```{r}
+emmeans(mod_quesi_a, specs = pairwise ~ Representation)
+```
+
+Werden die paarweisen Vergleiche visualisiert, zeigt sich der Unterschied der Bedingung *T* deutlich zu den anderen beiden Bedingungen, die sich wiederum nicht voneinander unterscheiden.
+
+```{r, fig.height=4}
+
+emmeans(mod_quesi_a, specs = pairwise ~ Representation)$emmeans %>% as.data.frame() %>% 
+    ggplot(., aes(x = Representation, y = emmean)) +
+    geom_point(position = position_dodge(width = .2),
+               size = 2.5) +
+    geom_errorbar(aes(ymin = lower.CL, ymax = upper.CL),
+                  width = 0, position = position_dodge(width = .2),
+                  size = 1) + 
+    theme_bw() +
+    theme(legend.position = "bottom") +
+    labs(x = "Repräsentation",
+         y = "Geschätztes Randmittel (QUESI)",
+         title = "Paarweiser Vergleich der Repräsentationen",
+         subtitle = "Modell: QUESI ~ Representation")
+
+```
+<br><font color = "grey"><font size = 2>*Anmerkung.* Darstellung der geschätzten Randmittel für QUESI für die Repräsentationen. Dargestellt werden Mittelwert mit dem 95%-Konfidenzintervall als Fehlerbalken.</font></font><br><br>
+
+### b) Representation und Expertenstatus {.tabset}
+
+#### Modellspezifikation
+
+In diesem Modell fließen die Representation (Faktor mit 3 Stufen) als primärer Prädiktor auf Level 1 aufgenommen. Hinzu kommt in diesen Modell der Expertenstatus (Faktor mit 2 Stufen). Um herauszufinden, ob die Unterschiede in der Representation abhängig von dem Expertenstatus sind (oder auch: Welche Representation ist für welchen Expertenstatus die Effektivste).
+
+```{r}
+.mod_quesi_b <- lmer(QUESI ~ Representation + EXPERTE + (1 | FBNUMMER), data = df)
+mod_quesi_b <- lmer(QUESI ~ Representation * EXPERTE + (1 | FBNUMMER), data = df)
+# delta R² Representation + Abschluss
+R2_QUESI_B_MF <- MuMIn::r.squaredGLMM(.mod_quesi_b)[[1]]
+# delta R² Representation * Abschluss
+R2_QUESI_B_IF <- MuMIn::r.squaredGLMM(mod_quesi_b)[[1]]
+```
+
+#### Ergebnis Gesammodell {.tabset}
+
+##### Anova-Tabelle
+
+In dieser Analyse gibt es insgesamt drei Effekte:
+
+* Haupteffekt *Representation*
+* Haupteffekt *EXPERTE*
+* Interaktionseffekt *Representation:EXPERTE*
+
+Das Ergebnis lautete:, 
+
+* Haupteffekt *Representation* wurde signifikant *F*(2, 96) = 9.84, *p* < .001, d.h. es gibt Unterschiede im Mittelwert von QUESI auf Basis der Representation (gleiches Ergebnis wie unter 1.1). 
+* Haupteffekt für *EXPERTE* wurde nicht signifikant *F*(1, 48) = 0.72, *p* = .400, d.h. Experten und Nicht-Experten unterschieden sich nicht signifikant im QUESI.
+* Interaktionseffekt *Representation:EXPERTE* wurde nicht signifikant, *F*(2, 96) = 0.12, p = .887, d.h. die Unterschiede im QUESI auf Basis der Representation sind NICHT abhängig davon, ob eine Person Experte oder Nicht-Experte ist (andersherum ebenso). Mit anderen Worten: egal ob Experte oder Nicht-Experte: QUESI-Werte unserscheiden sich nicht, egal welche Representation gezeigt wird.
+
+**WICHTIG:** Wenn der Interaktionseffekt nicht signifikant wurde, sind paarweise vergleiche im Grunde unnötig und sollten auch nicht mehr interpretiert werden! Sie werden hier nur der Vollständigkeit halber präsentiert.
+<br>
+<br>
+**Effektmaße:** Das Modell in dem Representation und Expertenstatus gemeinsam vorhanden sind erklärt $R^2$ = `r round(R2_QUESI_B_MF,3)` (rund 10%) der Varianz in QUESI und ist damit nicht wirklich besser als das Modell in dem nur Representation alleine drin ist, das ebenfalls rund 10% erklärt. Die Hinzunahme des Interaktionseffekts erhöht den Anteil der erklärten Varianz faktisch gar nicht (Erhöhung um`r round(R2_QUESI_B_IF - R2_QUESI_B_MF,5)`).
+
+```{r}
+anova(mod_quesi_b)
+```
+
+**FAZIT: Der Expertenstatus zeigt keinen signifikanten Zusammenhang mit dem QUESI und hat keinen signifikanten Einfluss auf den Zusammenhang zwischen Representation und QUESI.**
+
+
+##### Paarweise vergleiche {.tabset}
+
+Hier sind die paarweisen Vergleiche zwischen allen Bedingungen zu finden. Im oberen Teil des Outputs finden sich die geschätzten Mittelwerte aus dem Modell heraus mit ihren Standardfehler. Im unteren Teile wird für jedes Paar eine Differenz bestimmt.
+
+Die Unterschiede werden grafisch nachfolgend präsentiert.
+
+```{r, fig.height=8}
+
+plot_grid(
+  emmeans(mod_quesi_b, specs = pairwise ~ Representation * EXPERTE)$emmeans %>% as.data.frame() %>% 
+    ggplot(., aes(x = EXPERTE, y = emmean, color = Representation)) +
+    geom_point(position = position_dodge(width = .2),
+               size = 2.5) +
+    geom_errorbar(aes(ymin = lower.CL, ymax = upper.CL),
+                  width = 0, position = position_dodge(width = .2),
+                  size = 1) + 
+    theme_bw() +
+    theme(legend.position = "bottom") +
+    labs(x = "Expertenstatus",
+         y = "Geschätztes Randmittel (QUESI)",
+         title = "Paarweiser Vergleich der Representationen innerhalb des Abschlusses",
+         subtitle = "Modell: QUESI ~ Representation x Experte"),
+  
+   emmeans(mod_quesi_b, specs = pairwise ~ Representation * EXPERTE)$emmeans %>% as.data.frame() %>% 
+    ggplot(., aes(x = Representation, y = emmean, color = EXPERTE)) +
+    geom_point(position = position_dodge(width = .2),
+               size = 2.5) +
+    geom_errorbar(aes(ymin = lower.CL, ymax = upper.CL),
+                  width = 0, position = position_dodge(width = .2),
+                  size = 1) + 
+    theme_bw() +
+    theme(legend.position = "bottom") +
+    labs(x = "Representation",
+         y = "Geschätztes Randmittel (QUESI)",
+         title = "Paarweiser Vergleich der Representationen innerhalb des Abschlusses",
+         subtitle = "Modell: QUESI ~ Representation x Experte"),
+  ncol = 1
+)
+
+```
+<br><font color = "grey"><font size = 2>*Anmerkung.* Darstellung der geschätzten Randmittel für QUESI für die Repräsentationen getrennt nach Abschluss (oben) und einmal für den Abschluss getrennt nach Repräsentation (unten). Dargestellt werden Mittelwert mit dem 95%-Konfidenzintervall als Fehlerbalken.</font></font><br><br>
+
+Da es hier eine Interaktions gibt, werden insgesamt zwei Outputs präsentiert.
+
+###### Representation nach Expertenstatus
+
+In diesem Abschnitt sind die paarweisen Vergleiche zwischen den einzelnen *Representation*sbedingungen dargestellt und zwar **abhängig** davon, welchen *Experten*status die Person haben.
+
+Signifikante Unterschiede gab es weiterhin zwischen den Bedingungen B und T sowie S und T und zwar sowohl für Experten als auch nicht-Experten. Grundsätzlich waren die Mittelwerte in der Experten-Bedingung etwas höher als in der nicht-Experten Bedingung.
+
+```{r}
+emmeans(mod_quesi_b, specs = pairwise ~ Representation | EXPERTE)
+```
+
+###### Expertenstatus nach Representation
+
+In diesem Abschnitt sind die paarweisen Vergleiche zwischen den einzelnen *Experten*-Bedingungen dargestellt und zwar **abhängig** davon, welche *Representation* gezeigt wurde. In allen drei Represantationsbedingngen war der Mittelwert in der Nicht-Expertengruppe geringer als in der Experten-Gruppe aber in allen drei Representationen
+war dieser Unterschied nicht signifkant!
+
+```{r}
+emmeans(mod_quesi_b, specs = pairwise ~ EXPERTE | Representation)
+```
+
+### c) Representation und Abschluss {.tabset}
+
+#### Modellspezifikation
+
+In diesem Modell fließen die Representation (Faktor mit 3 Stufen) als primärer Prädiktor auf Level 1 aufgenommen. Hinzu kommt in diesen Modell der Abschluss (Faktor mit 5 Stufen). Um herauszufinden, ob die Unterschiede in der Representation abhängig von dem Abschluss sind (oder auch: Welche Representation ist für welchen Abschluss die Effektivste).
+
+```{r}
+.mod_quesi_c <- lmer(QUESI ~ Representation + Abschluss + (1 | FBNUMMER), data = df)
+mod_quesi_c <- lmer(QUESI ~ Representation * Abschluss + (1 | FBNUMMER), data = df)
+# delta R² Representation + Abschluss
+R2_QUESI_C_MF <- MuMIn::r.squaredGLMM(.mod_quesi_c)[[1]]
+# delta R² Representation * Abschluss
+R2_QUESI_C_IF <- MuMIn::r.squaredGLMM(mod_quesi_c)[[1]]
+```
+#### Ergebnis Gesammodell {.tabset}
+
+##### Anova-Tabelle
+
+In dieser Analyse gibt es insgesamt drei Effekte:
+
+* Haupteffekt *Representation*
+* Haupteffekt *Abschluss*
+* Interaktionseffekt *Representation:Abschluss*
+
+Das Ergebnis lautete:, 
+
+* Haupteffekt *Representation* wurde signifikant *F*(2, 90) = 4.83, *p* = .010, d.h. es gibt Unterschiede im Mittelwert von QUESI auf Basis der Representation (gleiches Fazit wie unter Abschnitt 1.1a). 
+* Haupteffekt für *Abschluss* wurde nicht signifikant *F*(4, 45) = 0.30, *p* = .874, egal welcher Abschlus vorliegt, es gibt keinen Unterschied im QUESI.
+* Interaktionseffekt *Representation:EXPERTE* wurde nicht signifikant, *F*(8, 90) = 0.73, p = .665, d.h. die Unterschiede im QUESI auf Basis der Representation sind NICHT abhängig davon, welcher Abschluss vorliegt.
+
+**WICHTIG:** Wenn der Interaktionseffekt nicht signifikant wurde, sind paarweise vergleiche im Grunde unnötig und sollten auch nicht mehr interpretiert werden! Sie werden hier nur der Vollständigkeit halber präsentiert.
+<br>
+<br>
+**Effektmaße:** Das Modell in dem Representation und Abschluss gemeinsam vorhanden sind erklärt $R^2$ = `r round(R2_QUESI_C_MF,3)` (rund 10%) der Varianz in QUESI und ist damit nicht wirklich besser als das Modell in dem nur Representation alleine drin ist, das ebenfalls rund 10% erklärt. Die Hinzunahme des Interaktionseffekts erhöht den Anteil der erklärten Varianz dann um $\Delta R²$ = `r round(R2_QUESI_C_IF - R2_QUESI_C_MF,2)` (etwa 2%). Dies ist, wenn man Cohens Einstufung er Effektstärken folgt umgerechnet noch ein sogenannter *schwacher Effekt*. Solche schwachen Interaktionseffekte sicher aufzudecken bedarf aber deutlich größerer Stichproben. Empfehlung: nichts reininterpretieren, maximal wäre die Idee, dies mit einer ausreichend großen Stichprobe nochmal aufs neue zu testen.
+
+
+```{r}
+anova(mod_quesi_c)
+```
+
+**FAZIT: Der Abschluss zeigt keinen signifikanten Zusammenhang mit dem QUESI und hat keinen signifikanten Einfluss auf den Zusammenhang zwischen Representation und QUESI.**
+
+##### Paarweise vergleiche {.tabset}
+
+Hier sind die paarweisen Vergleiche zwischen allen Bedingungen zu finden. Im oberen Teil des Outputs finden sich die geschätzten Mittelwerte aus dem Modell heraus mit ihren Standardfehler. Im unteren Teile wird für jedes Paar eine Differenz bestimmt.
+
+Die Unterschiede werden grafisch nachfolgend präsentiert.
+
+```{r, fig.height=8}
+
+plot_grid(
+  emmeans(mod_quesi_c, specs = pairwise ~ Representation * Abschluss)$emmeans %>% as.data.frame() %>% 
+    ggplot(., aes(x = Abschluss, y = emmean, color = Representation)) +
+    geom_point(position = position_dodge(width = .2),
+               size = 2.5) +
+    geom_errorbar(aes(ymin = lower.CL, ymax = upper.CL),
+                  width = 0, position = position_dodge(width = .2),
+                  size = 1) + 
+    theme_bw() +
+    theme(legend.position = "bottom") +
+    labs(x = "Abschluss",
+         y = "Geschätztes Randmittel (QUESI)",
+         title = "Paarweiser Vergleich der Representationen innerhalb des Abschlusses",
+         subtitle = "Modell: QUESI ~ Representation x Abschluss"),
+  
+  emmeans(mod_quesi_c, specs = pairwise ~ Representation * Abschluss)$emmeans %>% as.data.frame() %>% 
+    ggplot(., aes(x = Representation, y = emmean, color = Abschluss)) +
+    geom_point(position = position_dodge(width = .2),
+               size = 2.5) +
+    geom_errorbar(aes(ymin = lower.CL, ymax = upper.CL),
+                  width = 0, position = position_dodge(width = .2),
+                  size = 1) + 
+    theme_bw() +
+    theme(legend.position = "bottom") +
+    labs(x = "Representation",
+         y = "Geschätztes Randmittel (QUESI)",
+         title = "Paarweiser Vergleich der Representationen innerhalb des Abschlusses",
+         subtitle = "Modell: QUESI ~ Representation x Abschluss"),
+  ncol = 1
+)
+
+```
+<br><font color = "grey"><font size = 2>*Anmerkung.* Darstellung der geschätzten Randmittel für QUESI für die Repräsentationen getrennt nach Abschluss (oben) und einmal für den Abschluss getrennt nach Repräsentation (unten). Dargestellt werden Mittelwert mit dem 95%-Konfidenzintervall als Fehlerbalken.</font></font><br><br>
+
+
+Da es hier eine Interaktions gibt, werden in den einzelnen Reitern insgesamt zwei Outputs präsentiert.
+
+###### Representation nach Abschluss
+
+In diesem Abschnitt sind die paarweisen Vergleiche zwischen den einzelnen *Representation*sbedingungen dargestellt und zwar **abhängig** davon, welchen *Abschluss* die Personen haben.
+
+Signifkante Unterschieden fanden sich nur zwischen den Bedingungen:
+
+* B - T für Abschlüsse *2* und *4*
+* S - T für Abschlusse *2* und *4*
+
+Alle anderen paarweisen Tests wurden nicht signifikant.
+
+```{r}
+emmeans(mod_quesi_c, specs = pairwise ~ Representation | Abschluss)
+```
+
+###### Abschluss nach Representation
+
+In diesem Abschnitt sind die paarweisen Vergleiche zwischen den einzelnen *Abschluss*-Bedingungen dargestellt und zwar **abhängig** davon, welche *Representation* gezeigt wurde. 
+
+Es fanden sich keinerlei signifikante Unterschied zwischen den Abschlüssen abhängig von der gezeigten Representation.
+
+```{r}
+emmeans(mod_quesi_c, specs = pairwise ~ Abschluss | Representation)
+```
+
+## 1.2 Effektivität
+
+### a) Repräsentation {.tabset}
+
+#### Modellspezifikation
+
+In diesem Modell fließen die Representation (Faktor mit 3 Stufen) als primärer Prädiktor auf Level 1 aufgenommen.
+
+```{r}
+mod_Effektivität_a<- lmer(Effektivität ~ Representation + (1 | FBNUMMER), data = df)
+# R² nur für Representation
+R2_Effektivität_a_MF <- MuMIn::r.squaredGLMM(mod_Effektivität_a)[[1]]
+```
+
+#### Ergebnis Gesammodell {.tabset}
+
+##### Anova-Tabelle
+
+In diesem Modell gibt nur nur einen einzigen Haupteffekt (Faktor Repräsentation mit 3 Stufen).
+
+Dieser Faktor wurde statistisch signifikant, *F*(2, 98) = 3.56, p = .032. Der Anteil erklärter Varianz betrug R² = `r round(R2_Effektivität_a_MF, 3)` also rund 4%.
+
+```{r}
+anova(mod_Effektivität_a)
+```
+
+**FAZIT: Die Mittelwerte in Effektivität unterscheiden sich signifikant nach der Repräsentation. Der Effekt kann "mittlerer Effekt" (Cohen, 1988) eingestuft werden..**
+
+
+##### Paarweise vergleiche
+
+Hier sind die paarweisen Vergleiche zwischen allen Bedingungen zu finden. Im oberen Teil des Outputs finden sich die geschätzten Mittelwerte aus dem Modell heraus mit ihren Standardfehler. Im unteren Teile wird für jedes Paar eine Differenz bestimmt.
+
+```{r}
+emmeans(mod_Effektivität_a, specs = pairwise ~ Representation)
+```
+
+Werden die paarweisen Vergleiche visualisiert, zeigt sich der Unterschied der Bedingung *T* deutlich zu den anderen beiden Bedingungen, die sich wiederum nicht voneinander unterscheiden.
+
+```{r, fig.height=4}
+
+emmeans(mod_Effektivität_a, specs = pairwise ~ Representation)$emmeans %>% as.data.frame() %>% 
+    ggplot(., aes(x = Representation, y = emmean)) +
+    geom_point(position = position_dodge(width = .2),
+               size = 2.5) +
+    geom_errorbar(aes(ymin = lower.CL, ymax = upper.CL),
+                  width = 0, position = position_dodge(width = .2),
+                  size = 1) + 
+    theme_bw() +
+    theme(legend.position = "bottom") +
+    labs(x = "Repräsentation",
+         y = "Geschätztes Randmittel\n(Effektivität)",
+         title = "Paarweiser Vergleich der Repräsentationen",
+         subtitle = "Modell: Effektivität ~ Representation")
+
+```
+<br><font color = "grey"><font size = 2>*Anmerkung.* Darstellung der geschätzten Randmittel für Effektivität für die Repräsentationen. Dargestellt werden Mittelwert mit dem 95%-Konfidenzintervall als Fehlerbalken.</font></font><br><br>
+
+### b) Representation und Expertenstatus {.tabset}
+
+#### Modellspezifikation
+
+In diesem Modell fließen die Representation (Faktor mit 3 Stufen) als primärer Prädiktor auf Level 1 aufgenommen. Hinzu kommt in diesen Modell der Expertenstatus (Faktor mit 2 Stufen). Um herauszufinden, ob die Unterschiede in der Representation abhängig von dem Expertenstatus sind (oder auch: Welche Representation ist für welchen Expertenstatus die Effektivste).
+
+```{r}
+.mod_Effektivität_b <- lmer(Effektivität ~ Representation + EXPERTE + (1 | FBNUMMER), data = df)
+mod_Effektivität_b <- lmer(Effektivität ~ Representation * EXPERTE + (1 | FBNUMMER), data = df)
+# delta R² Representation + Abschluss
+R2_Effektivität_B_MF <- MuMIn::r.squaredGLMM(.mod_Effektivität_b)[[1]]
+# delta R² Representation * Abschluss
+R2_Effektivität_B_IF <- MuMIn::r.squaredGLMM(mod_Effektivität_b)[[1]]
+```
+
+#### Ergebnis Gesammodell {.tabset}
+
+##### Anova-Tabelle
+
+In dieser Analyse gibt es insgesamt drei Effekte:
+
+* Haupteffekt *Representation*
+* Haupteffekt *EXPERTE*
+* Interaktionseffekt *Representation:EXPERTE*
+
+Das Ergebnis lautete:, 
+
+* Haupteffekt *Representation* wurde signifikant *F*(2, 96) = 3.53, *p* < .033, d.h. es gibt Unterschiede im Mittelwert von Effektivität auf Basis der Representation (gleiches Ergebnis wie unter 1.1). 
+* Haupteffekt für *EXPERTE* wurde nicht signifikant *F*(1, 48) = 2.17, *p* = .147, d.h. Experten und Nicht-Experten unterschieden sich nicht signifikant im Effektivität.
+* Interaktionseffekt *Representation:EXPERTE* wurde nicht signifikant, *F*(2, 96) = 0.27, p = .761, d.h. die Unterschiede im Effektivität auf Basis der Representation sind NICHT abhängig davon, ob eine Person Experte oder Nicht-Experte ist (andersherum ebenso). Mit anderen Worten: egal ob Experte oder Nicht-Experte: Effektivität-Werte unserscheiden sich nicht, egal welche Representation gezeigt wird.
+
+**WICHTIG:** Wenn der Interaktionseffekt nicht signifikant wurde, sind paarweise vergleiche im Grunde unnötig und sollten auch nicht mehr interpretiert werden! Sie werden hier nur der Vollständigkeit halber präsentiert.
+<br>
+<br>
+**Effektmaße:** Das Modell in dem Representation und Expertenstatus gemeinsam vorhanden sind erklärt $R^2$ = `r round(R2_Effektivität_B_MF,3)` (rund 6%) der Varianz in Effektivität und ist damit um etwa 2% besser als das Modell ohne Effektivität. Das bedeutet, dass der Expertenstatus alleine etwa diese 2% erklärt. Die Hinzunahme des Interaktionseffekts erhöht den Anteil der erklärten Varianz dann nicht mehr bedeutsam (Erhöhung um`r round(R2_Effektivität_B_IF - R2_Effektivität_B_MF,5)`).
+
+```{r}
+anova(mod_Effektivität_b)
+```
+
+**FAZIT: Der Expertenstatus zeigt keinen signifikanten Zusammenhang mit dem Effektivität und hat keinen signifikanten Einfluss auf den Zusammenhang zwischen Representation und Effektivität.**
+
+
+##### Paarweise vergleiche {.tabset}
+
+Hier sind die paarweisen Vergleiche zwischen allen Bedingungen zu finden. Im oberen Teil des Outputs finden sich die geschätzten Mittelwerte aus dem Modell heraus mit ihren Standardfehler. Im unteren Teile wird für jedes Paar eine Differenz bestimmt.
+
+Die Unterschiede werden grafisch nachfolgend präsentiert.
+
+```{r b marginal means plot, fig.height=8}
+
+plot_grid(
+  emmeans(mod_Effektivität_b, specs = pairwise ~ Representation * EXPERTE)$emmeans %>% as.data.frame() %>% 
+    ggplot(., aes(x = EXPERTE, y = emmean, color = Representation)) +
+    geom_point(position = position_dodge(width = .2),
+               size = 2.5) +
+    geom_errorbar(aes(ymin = lower.CL, ymax = upper.CL),
+                  width = 0, position = position_dodge(width = .2),
+                  size = 1) + 
+    theme_bw() +
+    theme(legend.position = "bottom") +
+    labs(x = "Expertenstatus",
+         y = "Geschätztes Randmittel (Effektivität)",
+         title = "Paarweiser Vergleich der Representationen innerhalb des Abschlusses",
+         subtitle = "Modell: Effektivität ~ Representation x Experte"),
+  
+   emmeans(mod_Effektivität_b, specs = pairwise ~ Representation * EXPERTE)$emmeans %>% as.data.frame() %>% 
+    ggplot(., aes(x = Representation, y = emmean, color = EXPERTE)) +
+    geom_point(position = position_dodge(width = .2),
+               size = 2.5) +
+    geom_errorbar(aes(ymin = lower.CL, ymax = upper.CL),
+                  width = 0, position = position_dodge(width = .2),
+                  size = 1) + 
+    theme_bw() +
+    theme(legend.position = "bottom") +
+    labs(x = "Representation",
+         y = "Geschätztes Randmittel (Effektivität)",
+         title = "Paarweiser Vergleich der Representationen innerhalb des Abschlusses",
+         subtitle = "Modell: Effektivität ~ Representation x Experte"),
+  ncol = 1
+)
+
+```
+<br><font color = "grey"><font size = 2>*Anmerkung.* Darstellung der geschätzten Randmittel für Effektivität für die Repräsentationen getrennt nach Abschluss (oben) und einmal für den Abschluss getrennt nach Repräsentation (unten). Dargestellt werden Mittelwert mit dem 95%-Konfidenzintervall als Fehlerbalken.</font></font><br><br>
+
+Da es hier eine Interaktions gibt, werden insgesamt zwei Outputs präsentiert.
+
+###### Representation nach Expertenstatus
+
+In diesem Abschnitt sind die paarweisen Vergleiche zwischen den einzelnen *Representation*sbedingungen dargestellt und zwar **abhängig** davon, welchen *Experten*status die Person haben.
+
+Es fanden sich keinerlei signifikante Unterschiede zwischen den Repräsentationen, egal welchen Expertenstatus die Personen hatten.
+
+```{r}
+emmeans(mod_Effektivität_b, specs = pairwise ~ Representation | EXPERTE)
+```
+
+###### Expertenstatus nach Representation
+
+In diesem Abschnitt sind die paarweisen Vergleiche zwischen den einzelnen *Experten*-Bedingungen dargestellt und zwar **abhängig** davon, welche *Representation* gezeigt wurde.
+In allen drei Represantationsbedingngen war der Mittelwert in der Nicht-Expertengruppe geringer als in der Experten-Gruppe aber in allen drei Representationen war dieser Unterschied nicht signifkant!
+
+```{r}
+emmeans(mod_Effektivität_b, specs = pairwise ~ EXPERTE | Representation)
+```
+
+### c) Representation und Abschluss {.tabset}
+
+#### Modellspezifikation
+
+In diesem Modell fließen die Representation (Faktor mit 3 Stufen) als primärer Prädiktor auf Level 1 aufgenommen. Hinzu kommt in diesen Modell der Abschluss (Faktor mit 5 Stufen). Um herauszufinden, ob die Unterschiede in der Representation abhängig von dem Abschluss sind (oder auch: Welche Representation ist für welchen Abschluss die Effektivste).
+
+```{r}
+.mod_Effektivität_c <- lmer(Effektivität ~ Representation + Abschluss + (1 | FBNUMMER), data = df)
+mod_Effektivität_c <- lmer(Effektivität ~ Representation * Abschluss + (1 | FBNUMMER), data = df)
+# delta R² Representation + Abschluss
+R2_Effektivität_C_MF <- MuMIn::r.squaredGLMM(.mod_Effektivität_c)[[1]]
+# delta R² Representation * Abschluss
+R2_Effektivität_C_IF <- MuMIn::r.squaredGLMM(mod_Effektivität_c)[[1]]
+```
+#### Ergebnis Gesammodell {.tabset}
+
+##### Anova-Tabelle
+
+In dieser Analyse gibt es insgesamt drei Effekte:
+
+* Haupteffekt *Representation*
+* Haupteffekt *Abschluss*
+* Interaktionseffekt *Representation:Abschluss*
+
+Das Ergebnis lautete:, 
+
+* Haupteffekt *Representation* wurde signifikant *F*(2, 90) = 5.97, *p* = .003, d.h. es gibt Unterschiede im Mittelwert von Effektivität auf Basis der Representation (gleiches Fazit wie unter Abschnitt 1.1a). 
+* Haupteffekt für *Abschluss* wurde signifikant *F*(4, 45) = 3.48, *p* = .015, d.h. die Effektivität unterschied sich je nachdem welchen Abschluss die Personen hatten. Näheres dazu in den Einzelvergleichen.
+* Interaktionseffekt *Representation:EXPERTE* wurde hingegen nicht signifikant, *F*(8, 90) = 1.17, p = .321, d.h. die Unterschiede im Effektivität auf Basis der Repräsentation sind NICHT abhängig davon, welcher Abschluss vorliegt.
+
+**WICHTIG:** Wenn der Interaktionseffekt nicht signifikant wurde, sind paarweise vergleiche im Grunde unnötig und sollten auch nicht mehr interpretiert werden! Sie werden hier nur der Vollständigkeit halber präsentiert.
+<br>
+<br>
+**Effektmaße:** Das Modell in dem Representation und Abschluss gemeinsam vorhanden sind erklärt $R^2$ = `r round(R2_Effektivität_C_MF,3)` (rund 13%) der Varianz in Effektivität und ist damit deutlich besser (Steigerung um etwa 8%) als das Modell, in dem nur der Zusammenhang zwischen Repräsentation und Effektivität geprüft wird ($R^2$ = `r round(R2_Effektivität_a_MF,2)`).
+Die Hinzunahme des Interaktionseffekts erhöht den Anteil der erklärten Varianz dann nochmal um $\Delta R²$ = `r round(R2_Effektivität_C_IF - R2_Effektivität_C_MF,2)` (etwa 4%). Dies ist, wenn man Cohens Einstufung er Effektstärken folgt umgerechnet noch ein sogenannter *schwacher Effekt*. Solche schwachen Interaktionseffekte sicher aufzudecken bedarf aber deutlich größerer Stichproben. Empfehlung: nichts reininterpretieren, maximal wäre die Idee, dies mit einer ausreichend großen Stichprobe nochmal aufs neue zu testen.
+
+
+```{r}
+anova(mod_Effektivität_c)
+```
+
+**FAZIT: Der Abschluss zeigt einen signifikanten Zusammenhang mit der Effektivität aber keinen Interaktionseffekt mit der Repräsentation.**
+
+##### Paarweise vergleiche {.tabset}
+
+Hier sind die paarweisen Vergleiche zwischen allen Bedingungen zu finden. Im oberen Teil des Outputs finden sich die geschätzten Mittelwerte aus dem Modell heraus mit ihren Standardfehler. Im unteren Teile wird für jedes Paar eine Differenz bestimmt.
+
+Die Unterschiede werden grafisch nachfolgend präsentiert.
+
+```{r fig.height=8}
+
+plot_grid(
+  emmeans(mod_Effektivität_c, specs = pairwise ~ Representation * Abschluss)$emmeans %>% as.data.frame() %>% 
+    ggplot(., aes(x = Abschluss, y = emmean, color = Representation)) +
+    geom_point(position = position_dodge(width = .2),
+               size = 2.5) +
+    geom_errorbar(aes(ymin = lower.CL, ymax = upper.CL),
+                  width = 0, position = position_dodge(width = .2),
+                  size = 1) + 
+    theme_bw() +
+    theme(legend.position = "bottom") +
+    labs(x = "Abschluss",
+         y = "Geschätztes Randmittel (Effektivität)",
+         title = "Paarweiser Vergleich der Representationen innerhalb des Abschlusses",
+         subtitle = "Modell: Effektivität ~ Representation x Abschluss"),
+  
+  emmeans(mod_Effektivität_c, specs = pairwise ~ Representation * Abschluss)$emmeans %>% as.data.frame() %>% 
+    ggplot(., aes(x = Representation, y = emmean, color = Abschluss)) +
+    geom_point(position = position_dodge(width = .2),
+               size = 2.5) +
+    geom_errorbar(aes(ymin = lower.CL, ymax = upper.CL),
+                  width = 0, position = position_dodge(width = .2),
+                  size = 1) + 
+    theme_bw() +
+    theme(legend.position = "bottom") +
+    labs(x = "Representation",
+         y = "Geschätztes Randmittel (Effektivität)",
+         title = "Paarweiser Vergleich der Representationen innerhalb des Abschlusses",
+         subtitle = "Modell: Effektivität ~ Representation x Abschluss"),
+  ncol = 1
+)
+
+```
+<br><font color = "grey"><font size = 2>*Anmerkung.* Darstellung der geschätzten Randmittel für Effektivität für die Repräsentationen getrennt nach Abschluss (oben) und einmal für den Abschluss getrennt nach Repräsentation (unten). Dargestellt werden Mittelwert mit dem 95%-Konfidenzintervall als Fehlerbalken.</font></font><br><br>
+
+
+Da es hier eine Interaktions gibt, werden in den einzelnen Reitern insgesamt zwei Outputs präsentiert.
+
+###### Representation nach Abschluss
+
+In diesem Abschnitt sind die paarweisen Vergleiche zwischen den einzelnen *Representation*sbedingungen dargestellt und zwar **abhängig** davon, welchen *Abschluss* die Personen haben.
+
+Signifkante Unterschieden zwischen den Repräsentationen fanden sich nur für den Abschluss 0 und zwar zwsichen B - T sowie S - T.
+
+Alle anderen paarweisen Tests wurden nicht signifikant.
+
+```{r}
+emmeans(mod_Effektivität_c, specs = pairwise ~ Representation | Abschluss)
+```
+
+###### Abschluss nach Representation
+
+In diesem Abschnitt sind die paarweisen Vergleiche zwischen den einzelnen *Abschluss*-Bedingungen dargestellt und zwar **abhängig** davon, welche *Representation* gezeigt wurde. 
+
+In der Repräsentation *T* fanden sich als signifikante Unterschiede und zwar zwischen:
+
+* Abschluss *0* und *3*
+* Abschluss *0* und *4*
+
+Alle anderen paaweisen Vergleiche waren statistisch nicht signifikant.
+
+```{r}
+emmeans(mod_Effektivität_c, specs = pairwise ~ Abschluss | Representation)
+```
+
+## 1.3 Beanspruchung
+
+### a) Representation {.tabset}
+
+#### Modellspezifikation
+
+In diesem Modell fließen die Representation (Faktor mit 3 Stufen) als primärer Prädiktor auf Level 1 aufgenommen.
+
+```{r}
+mod_MBeanspruchung_a<- lmer(MBeanspruchung ~ Representation + (1 | FBNUMMER), data = df)
+# R² nur für Representation
+R2_MBeanspruchung_a_MF <- MuMIn::r.squaredGLMM(mod_MBeanspruchung_a)[[1]]
+```
+
+#### Ergebnis Gesammodell {.tabset}
+
+##### Anova-Tabelle
+
+In diesem Modell gibt nur nur einen einzigen Haupteffekt (Faktor Repräsentation mit 3 Stufen).
+
+Dieser Faktor wurde statistisch signifikant, *F*(2, 98) = 5.48, p = .006. Der Anteil erklärter Varianz betrug R² = `r round(R2_MBeanspruchung_a_MF, 3)` also rund 5%.
+
+```{r}
+anova(mod_MBeanspruchung_a)
+```
+
+**FAZIT: Die Mittelwerte in MBeanspruchung unterscheiden sich signifikant nach der Repräsentation. Der Effekt kann als "schwacher Effekt" (Cohen, 1988) eingestuft werden..**
+
+
+##### Paarweise vergleiche
+
+Hier sind die paarweisen Vergleiche zwischen allen Bedingungen zu finden. Im oberen Teil des Outputs finden sich die geschätzten Mittelwerte aus dem Modell heraus mit ihren Standardfehler. Im unteren Teile wird für jedes Paar eine Differenz bestimmt.
+
+```{r}
+emmeans(mod_MBeanspruchung_a, specs = pairwise ~ Representation)
+```
+
+Werden die paarweisen Vergleiche visualisiert, zeigt sich der Unterschied der Bedingung *T* deutlich zu den anderen beiden Bedingungen, die sich wiederum nicht voneinander unterscheiden.
+
+```{r, fig.height=4}
+
+emmeans(mod_MBeanspruchung_a, specs = pairwise ~ Representation)$emmeans %>% as.data.frame() %>% 
+    ggplot(., aes(x = Representation, y = emmean)) +
+    geom_point(position = position_dodge(width = .2),
+               size = 2.5) +
+    geom_errorbar(aes(ymin = lower.CL, ymax = upper.CL),
+                  width = 0, position = position_dodge(width = .2),
+                  size = 1) + 
+    theme_bw() +
+    theme(legend.position = "bottom") +
+    labs(x = "Repräsentation",
+         y = "Geschätztes Randmittel (MBeanspruchung)",
+         title = "Paarweiser Vergleich der Repräsentationen",
+         subtitle = "Modell: MBeanspruchung ~ Representation")
+
+```
+<br><font color = "grey"><font size = 2>*Anmerkung.* Darstellung der geschätzten Randmittel für MBeanspruchung für die Repräsentationen. Dargestellt werden Mittelwert mit dem 95%-Konfidenzintervall als Fehlerbalken.</font></font><br><br>
+
+### b) Representation und Expertenstatus {.tabset}
+
+#### Modellspezifikation
+
+In diesem Modell fließen die Representation (Faktor mit 3 Stufen) als primärer Prädiktor auf Level 1 aufgenommen. Hinzu kommt in diesen Modell der Expertenstatus (Faktor mit 2 Stufen). Um herauszufinden, ob die Unterschiede in der Representation abhängig von dem Expertenstatus sind (oder auch: Welche Representation ist für welchen Expertenstatus die Effektivste).
+
+```{r}
+.mod_MBeanspruchung_b <- lmer(MBeanspruchung ~ Representation + EXPERTE + (1 | FBNUMMER), data = df)
+mod_MBeanspruchung_b <- lmer(MBeanspruchung ~ Representation * EXPERTE + (1 | FBNUMMER), data = df)
+# delta R² Representation + Abschluss
+R2_MBeanspruchung_B_MF <- MuMIn::r.squaredGLMM(.mod_MBeanspruchung_b)[[1]]
+# delta R² Representation * Abschluss
+R2_MBeanspruchung_B_IF <- MuMIn::r.squaredGLMM(mod_MBeanspruchung_b)[[1]]
+```
+
+#### Ergebnis Gesammodell {.tabset}
+
+##### Anova-Tabelle
+
+In dieser Analyse gibt es insgesamt drei Effekte:
+
+* Haupteffekt *Representation*
+* Haupteffekt *EXPERTE*
+* Interaktionseffekt *Representation:EXPERTE*
+
+Das Ergebnis lautete:, 
+
+* Haupteffekt *Representation* wurde signifikant *F*(2, 96) = 5.49, *p* = .006, d.h. es gibt Unterschiede im Mittelwert von MBeanspruchung auf Basis der Representation (gleiches Ergebnis wie unter 1.1). 
+* Haupteffekt für *EXPERTE* wurde nicht signifikant *F*(1, 48) = 0.02, *p* = .899, d.h. Experten und Nicht-Experten unterschieden sich nicht signifikant im MBeanspruchung.
+* Interaktionseffekt *Representation:EXPERTE* wurde nicht signifikant, *F*(2, 96) = 0.48, p = .619, d.h. die Unterschiede im MBeanspruchung auf Basis der Representation sind NICHT abhängig davon, ob eine Person Experte oder Nicht-Experte ist (andersherum ebenso). Mit anderen Worten: egal ob Experte oder Nicht-Experte: MBeanspruchung-Werte unserscheiden sich nicht, egal welche Representation gezeigt wird.
+
+**WICHTIG:** Wenn der Interaktionseffekt nicht signifikant wurde, sind paarweise vergleiche im Grunde unnötig und sollten auch nicht mehr interpretiert werden! Sie werden hier nur der Vollständigkeit halber präsentiert.
+<br>
+<br>
+**Effektmaße:** Das Modell in dem Representation und Expertenstatus gemeinsam vorhanden sind erklärt $R^2$ = `r round(R2_MBeanspruchung_B_MF,3)` (rund 5%) der Varianz in MBeanspruchung und ist damit nicht wirklich besser als das Modell in dem nur Representation alleine drin ist, das ebenfalls rund 5% erklärt. Die Hinzunahme des Interaktionseffekts erhöht den Anteil der erklärten Varianz faktisch gar nicht (Erhöhung um`r round(R2_MBeanspruchung_B_IF - R2_MBeanspruchung_B_MF,5)`).
+
+```{r}
+anova(mod_MBeanspruchung_b)
+```
+
+**FAZIT: Der Expertenstatus zeigt keinen signifikanten Zusammenhang mit dem MBeanspruchung und hat keinen signifikanten Einfluss auf den Zusammenhang zwischen Representation und MBeanspruchung.**
+
+
+##### Paarweise vergleiche {.tabset}
+
+Hier sind die paarweisen Vergleiche zwischen allen Bedingungen zu finden. Im oberen Teil des Outputs finden sich die geschätzten Mittelwerte aus dem Modell heraus mit ihren Standardfehler. Im unteren Teile wird für jedes Paar eine Differenz bestimmt.
+
+Die Unterschiede werden grafisch nachfolgend präsentiert.
+
+```{r, fig.height=8}
+
+plot_grid(
+  emmeans(mod_MBeanspruchung_b, specs = pairwise ~ Representation * EXPERTE)$emmeans %>% as.data.frame() %>% 
+    ggplot(., aes(x = EXPERTE, y = emmean, color = Representation)) +
+    geom_point(position = position_dodge(width = .2),
+               size = 2.5) +
+    geom_errorbar(aes(ymin = lower.CL, ymax = upper.CL),
+                  width = 0, position = position_dodge(width = .2),
+                  size = 1) + 
+    theme_bw() +
+    theme(legend.position = "bottom") +
+    labs(x = "Expertenstatus",
+         y = "Geschätztes Randmittel\n(MBeanspruchung)",
+         title = "Paarweiser Vergleich der Representationen innerhalb des Abschlusses",
+         subtitle = "Modell: MBeanspruchung ~ Representation x Experte"),
+  
+   emmeans(mod_MBeanspruchung_b, specs = pairwise ~ Representation * EXPERTE)$emmeans %>% as.data.frame() %>% 
+    ggplot(., aes(x = Representation, y = emmean, color = EXPERTE)) +
+    geom_point(position = position_dodge(width = .2),
+               size = 2.5) +
+    geom_errorbar(aes(ymin = lower.CL, ymax = upper.CL),
+                  width = 0, position = position_dodge(width = .2),
+                  size = 1) + 
+    theme_bw() +
+    theme(legend.position = "bottom") +
+    labs(x = "Representation",
+         y = "Geschätztes Randmittel\n(MBeanspruchung)",
+         title = "Paarweiser Vergleich der Representationen innerhalb des Abschlusses",
+         subtitle = "Modell: MBeanspruchung ~ Representation x Experte"),
+  ncol = 1
+)
+
+```
+<br><font color = "grey"><font size = 2>*Anmerkung.* Darstellung der geschätzten Randmittel für MBeanspruchung für die Repräsentationen getrennt nach Abschluss (oben) und einmal für den Abschluss getrennt nach Repräsentation (unten). Dargestellt werden Mittelwert mit dem 95%-Konfidenzintervall als Fehlerbalken.</font></font><br><br>
+
+Da es hier eine Interaktions gibt, werden insgesamt zwei Outputs präsentiert.
+
+###### Representation nach Expertenstatus
+
+In diesem Abschnitt sind die paarweisen Vergleiche zwischen den einzelnen *Representation*sbedingungen dargestellt und zwar **abhängig** davon, welchen *Experten*status die Person haben.
+
+Es gab nur einen einzigen signifikanten paarweisen Unterschied zwischen B - T für Nicht-Experten. Alle anderen paarweisen Vergleiche waren nicht signifikant.
+
+```{r}
+emmeans(mod_MBeanspruchung_b, specs = pairwise ~ Representation | EXPERTE)
+```
+
+###### Expertenstatus nach Representation
+
+In diesem Abschnitt sind die paarweisen Vergleiche zwischen den einzelnen *Experten*-Bedingungen dargestellt und zwar **abhängig** davon, welche *Representation* gezeigt wurde.
+Es gab keine signifikanten Unterschiede zwischen Experten und Nicht-Experten, egal welche Repräsentation gezeigt wurde.
+
+```{r}
+emmeans(mod_MBeanspruchung_b, specs = pairwise ~ EXPERTE | Representation)
+```
+
+### c) Representation und Abschluss {.tabset}
+
+#### Modellspezifikation
+
+In diesem Modell fließen die Representation (Faktor mit 3 Stufen) als primärer Prädiktor auf Level 1 aufgenommen. Hinzu kommt in diesen Modell der Abschluss (Faktor mit 5 Stufen). Um herauszufinden, ob die Unterschiede in der Representation abhängig von dem Abschluss sind (oder auch: Welche Representation ist für welchen Abschluss die Effektivste).
+
+```{r}
+.mod_MBeanspruchung_c <- lmer(MBeanspruchung ~ Representation + Abschluss + (1 | FBNUMMER), data = df)
+mod_MBeanspruchung_c <- lmer(MBeanspruchung ~ Representation * Abschluss + (1 | FBNUMMER), data = df)
+# delta R² Representation + Abschluss
+R2_MBeanspruchung_C_MF <- MuMIn::r.squaredGLMM(.mod_MBeanspruchung_c)[[1]]
+# delta R² Representation * Abschluss
+R2_MBeanspruchung_C_IF <- MuMIn::r.squaredGLMM(mod_MBeanspruchung_c)[[1]]
+```
+#### Ergebnis Gesammodell {.tabset}
+
+##### Anova-Tabelle
+
+In dieser Analyse gibt es insgesamt drei Effekte:
+
+* Haupteffekt *Representation*
+* Haupteffekt *Abschluss*
+* Interaktionseffekt *Representation:Abschluss*
+
+Das Ergebnis lautete:, 
+
+* Haupteffekt *Representation* wurde nicht signifikant *F*(2, 90) = 2.22, *p* = .114. Entgegen zu 1.3a) gab es keinen signifikanten Haupteffekt mehr, wenn der Abschluss mit im Modell berücksichtigt wird.
+* Haupteffekt für *Abschluss* wurde nicht signifikant *F*(4, 45) = 0.46, *p* = .766, egal welcher Abschlus vorliegt, es gibt keinen Unterschied im MBeanspruchung.
+* Interaktionseffekt *Representation:EXPERTE* wurde nicht signifikant, *F*(8, 90) = 0.93, p = .497, d.h. die Unterschiede im MBeanspruchung auf Basis der Representation sind NICHT abhängig davon, welcher Abschluss vorliegt.
+
+**WICHTIG:** Wenn der Interaktionseffekt nicht signifikant wurde, sind paarweise vergleiche im Grunde unnötig und sollten auch nicht mehr interpretiert werden! Sie werden hier nur der Vollständigkeit halber präsentiert.
+<br>
+<br>
+**Effektmaße:** Das Modell in dem Representation und Abschluss gemeinsam vorhanden sind erklärt $R^2$ = `r round(R2_MBeanspruchung_C_MF,3)` (rund 6%) der Varianz in MBeanspruchung. Der Anstieg in erklärter Varianz beträgt im Vergleich zum Modell in dem nur die Repräsentation drin ist nur 1%.
+Die Hinzunahme des Interaktionseffekts erhöht den Anteil der erklärten Varianz dann um $\Delta R²$ = `r round(R2_MBeanspruchung_C_IF - R2_MBeanspruchung_C_MF,2)` (etwa 3%). Dies ist, wenn man Cohens Einstufung er Effektstärken folgt umgerechnet noch ein sogenannter *schwacher Effekt*. Solche schwachen Interaktionseffekte sicher aufzudecken bedarf aber deutlich größerer Stichproben. Empfehlung: nichts reininterpretieren, maximal wäre die Idee, dies mit einer ausreichend großen Stichprobe nochmal aufs neue zu testen.
+
+```{r}
+anova(mod_MBeanspruchung_c)
+```
+
+**FAZIT: Der Abschluss zeigt keinen signifikanten Zusammenhang mit dem MBeanspruchung und hat keinen signifikanten Einfluss auf den Zusammenhang zwischen Representation und MBeanspruchung.**
+
+##### Paarweise vergleiche {.tabset}
+
+Hier sind die paarweisen Vergleiche zwischen allen Bedingungen zu finden. Im oberen Teil des Outputs finden sich die geschätzten Mittelwerte aus dem Modell heraus mit ihren Standardfehler. Im unteren Teile wird für jedes Paar eine Differenz bestimmt.
+
+Die Unterschiede werden grafisch nachfolgend präsentiert.
+
+```{r, fig.height=8}
+
+plot_grid(
+  emmeans(mod_MBeanspruchung_c, specs = pairwise ~ Representation * Abschluss)$emmeans %>% as.data.frame() %>% 
+    ggplot(., aes(x = Abschluss, y = emmean, color = Representation)) +
+    geom_point(position = position_dodge(width = .2),
+               size = 2.5) +
+    geom_errorbar(aes(ymin = lower.CL, ymax = upper.CL),
+                  width = 0, position = position_dodge(width = .2),
+                  size = 1) + 
+    theme_bw() +
+    theme(legend.position = "bottom") +
+    labs(x = "Abschluss",
+         y = "Geschätztes Randmittel (MBeanspruchung)",
+         title = "Paarweiser Vergleich der Representationen innerhalb des Abschlusses",
+         subtitle = "Modell: MBeanspruchung ~ Representation x Abschluss"),
+  
+  emmeans(mod_MBeanspruchung_c, specs = pairwise ~ Representation * Abschluss)$emmeans %>% as.data.frame() %>% 
+    ggplot(., aes(x = Representation, y = emmean, color = Abschluss)) +
+    geom_point(position = position_dodge(width = .2),
+               size = 2.5) +
+    geom_errorbar(aes(ymin = lower.CL, ymax = upper.CL),
+                  width = 0, position = position_dodge(width = .2),
+                  size = 1) + 
+    theme_bw() +
+    theme(legend.position = "bottom") +
+    labs(x = "Representation",
+         y = "Geschätztes Randmittel (MBeanspruchung)",
+         title = "Paarweiser Vergleich der Representationen innerhalb des Abschlusses",
+         subtitle = "Modell: MBeanspruchung ~ Representation x Abschluss"),
+  ncol = 1
+)
+
+```
+<br><font color = "grey"><font size = 2>*Anmerkung.* Darstellung der geschätzten Randmittel für MBeanspruchung für die Repräsentationen getrennt nach Abschluss (oben) und einmal für den Abschluss getrennt nach Repräsentation (unten). Dargestellt werden Mittelwert mit dem 95%-Konfidenzintervall als Fehlerbalken.</font></font><br><br>
+
+
+Da es hier eine Interaktions gibt, werden in den einzelnen Reitern insgesamt zwei Outputs präsentiert.
+
+###### Representation nach Abschluss
+
+In diesem Abschnitt sind die paarweisen Vergleiche zwischen den einzelnen *Representation*sbedingungen dargestellt und zwar **abhängig** davon, welchen *Abschluss* die Personen haben.
+
+Signifkante Unterschieden fanden sich nur zwischen den Bedingungen:
+
+* S - T für den Abschluss *2*
+* B - T für den Abschluss *4*
+
+Alle anderen paarweisen Tests wurden nicht signifikant.
+
+```{r}
+emmeans(mod_MBeanspruchung_c, specs = pairwise ~ Representation | Abschluss)
+```
+
+###### Abschluss nach Representation
+
+In diesem Abschnitt sind die paarweisen Vergleiche zwischen den einzelnen *Abschluss*-Bedingungen dargestellt und zwar **abhängig** davon, welche *Representation* gezeigt wurde. 
+
+Es fanden sich keinerlei signifikante Unterschied zwischen den Abschlüssen abhängig von der gezeigten Representation.
+
+```{r}
+emmeans(mod_MBeanspruchung_c, specs = pairwise ~ Abschluss | Representation)
+```
+
+
+
+
+
+## 2.1 Quesi
+### a) Repräsentation und Task {.tabset}
+
+#### Modellspezifikation
+
+```{r}
+mod_quesi_task_a<- lmer(QUESI ~ Representation * Task + (1 | FBNUMMER), data = df)
+# R² nur für Representation
+R2_QUESI_task_a_MF <- MuMIn::r.squaredGLMM(mod_quesi_task_a)[[1]]
+```
+
+#### Ergebnis Gesammodell {.tabset}
+
+##### Anova-Tabelle
+
+```{r}
+anova(mod_quesi_task_a)
+```
+
+
+##### Paarweise vergleiche {.tabset}
+
+```{r, fig.height=8}
+
+plot_grid(
+  emmeans(mod_quesi_task_a, specs = pairwise ~ Representation * Task)$emmeans %>% as.data.frame() %>% 
+    ggplot(., aes(x = Task, y = emmean, color = Representation)) +
+    geom_point(position = position_dodge(width = .2),
+               size = 2.5) +
+    geom_errorbar(aes(ymin = lower.CL, ymax = upper.CL),
+                  width = 0, position = position_dodge(width = .2),
+                  size = 1) + 
+    theme_bw() +
+    theme(legend.position = "bottom") +
+    labs(x = "Task",
+         y = "Geschätztes Randmittel\n(QUESI)",
+         title = "Paarweiser Vergleich der Repräsentation innerhalb der Tasks",
+         subtitle = "Modell: MBeanspruchung ~ Repräsentation x Task"),
+  
+  emmeans(mod_quesi_task_a, specs = pairwise ~ Representation * Task)$emmeans %>% as.data.frame() %>% 
+    ggplot(., aes(x = Representation, y = emmean, color = Task)) +
+    geom_point(position = position_dodge(width = .2),
+               size = 2.5) +
+    geom_errorbar(aes(ymin = lower.CL, ymax = upper.CL),
+                  width = 0, position = position_dodge(width = .2),
+                  size = 1) + 
+    theme_bw() +
+    theme(legend.position = "bottom") +
+    labs(x = "Repräsentation",
+         y = "Geschätztes Randmittel\n(QUESI)",
+         title = "Paarweiser Vergleich der Repräsentation innerhalb der Tasks",
+         subtitle = "Modell: QUESI ~ Representation x Task"),
+  ncol = 1
+)
+
+```
+<br><font color = "grey"><font size = 2>*Anmerkung.* Darstellung der geschätzten Randmittel für MBeanspruchung für die Repräsentationen getrennt nach Abschluss (oben) und einmal für den Abschluss getrennt nach Repräsentation (unten). Dargestellt werden Mittelwert mit dem 95%-Konfidenzintervall als Fehlerbalken.</font></font><br><br>
+
+###### Repräsentation nach Task
+```{r}
+emmeans(mod_quesi_task_a, specs = pairwise ~ Representation | Task)
+```
+
+###### Task nach Repräsentation
+```{r}
+emmeans(mod_quesi_task_a, specs = pairwise ~ Task | Representation)
+```
+
+### b) Repräsentation und Task und Experten {.tabset}
+
+#### Modellspezifikation
+
+```{r}
+mod_quesi_task_b<- lmer(QUESI ~ Representation * Task * EXPERTE + (1 | FBNUMMER), data = df)
+# R² nur für Representation
+R2_QUESI_task_b<- MuMIn::r.squaredGLMM(mod_quesi_task_b)[[1]]
+```
+
+#### Ergebnis Gesammodell {.tabset}
+
+##### Anova-Tabelle
+
+```{r}
+anova(mod_quesi_task_b)
+```
+
+
+##### Paarweise vergleiche {.tabset}
+
+###### Visuell
+```{r, fig.height=8}
+
+plot_grid(
+  emmeans(mod_quesi_task_b, specs = pairwise ~ Representation * Task*EXPERTE)$emmeans %>% as.data.frame() %>% 
+    ggplot(., aes(x = Task, y = emmean, color = Representation)) +
+    facet_grid(EXPERTE~.) +
+    geom_point(position = position_dodge(width = .2),
+               size = 2.5) +
+    geom_errorbar(aes(ymin = lower.CL, ymax = upper.CL),
+                  width = 0, position = position_dodge(width = .2),
+                  size = 1) + 
+    theme_bw() +
+    theme(legend.position = "bottom") +
+    labs(x = "Task",
+         y = "Geschätztes Randmittel\n(QUESI)",
+         title = "Paarweiser Vergleich der Repräsentation innerhalb der Tasks",
+         subtitle = "Modell: MBeanspruchung ~ Repräsentation x Task"),
+  
+  emmeans(mod_quesi_task_b, specs = pairwise ~ Representation * Task*EXPERTE)$emmeans %>% as.data.frame() %>% 
+    ggplot(., aes(x = Representation, y = emmean, color = Task)) +
+    facet_grid(EXPERTE ~ .) +
+    geom_point(position = position_dodge(width = .2),
+               size = 2.5) +
+    geom_errorbar(aes(ymin = lower.CL, ymax = upper.CL),
+                  width = 0, position = position_dodge(width = .2),
+                  size = 1) + 
+    theme_bw() +
+    theme(legend.position = "bottom") +
+    labs(x = "Repräsentation",
+         y = "Geschätztes Randmittel\n(QUESI)",
+         title = "Paarweiser Vergleich der Repräsentation innerhalb der Tasks",
+         subtitle = "Modell: QUESI ~ Representation x Task"),
+  ncol = 1
+)
+
+```
+<br><font color = "grey"><font size = 2>*Anmerkung.* Darstellung der geschätzten Randmittel für MBeanspruchung für die Repräsentationen getrennt nach Abschluss (oben) und einmal für den Abschluss getrennt nach Repräsentation (unten). Dargestellt werden Mittelwert mit dem 95%-Konfidenzintervall als Fehlerbalken.</font></font><br><br>
+
+###### Gesamttabelle
+```{r}
+emmeans(mod_quesi_task_b, specs = pairwise ~ Representation * Task * EXPERTE)$emmean
+```
+
+
+```{r}
+headerabove = htmltools::withTags(table(
+  class = 'display',
+  thead(
+    tr(
+      th(colspan = 3, 'Kontrastkombination1'),
+      th(rowspan = 2, ' '),
+      th(colspan = 3, 'Kontrastkombination2'),
+      th(colspan = 5, "paarweiser Vergleich")
+    ),
+    tr(
+      lapply(c('Rep', 'Task', 'Expert', 
+               'Rep', 'Task', "Expert",
+               "Differenz", "SE", "df", "t", "p"),
+             th),
+    )
+  )
+))
+
+
+emmeans(mod_quesi_task_b, specs = pairwise ~ Representation * Task * EXPERTE)$contrasts %>% 
+  as.data.frame() %>% 
+  separate("contrast", into = c("lhs", "rhs"), sep = "-") %>% 
+  mutate_at(vars(lhs, rhs), function(x) {
+    gsub("[[:blank:]]$|^[[:blank:]]", "", x)
+  }) %>% 
+  separate("lhs", into = c("Rep1", "Task1", "Exp1"), sep = " ") %>%
+  separate("rhs", into = c("Rep2", "Task2", "Exp2"), sep = " ") %>% 
+  mutate(op = "~") %>% 
+  dplyr::select(Rep1, Task1, Exp1, op, everything()) %>% 
+  datatable(., 
+            caption = "Tabelle: Paarweise Vergleiche für das Modell QUESI ~ Repräsentation x Task x Expertenstatus",
+            rownames = F,
+            container = headerabove,
+            options = list(
+              lengthChange = T,
+              pageLength = 15,
+              dom = "tpB",
+              buttons = c("excel"),
+              order = list(list(11, "asc"))
+            )
+            ) %>% 
+  formatRound(., columns = 7:11, digits = 2) %>% 
+  formatRound(., columns = 12, digits = 5)
+```
+### c) Repräsentation und Task und Abschluss {.tabset}
+
+#### Modellspezifikation
+
+**WICHTIG:** Es gab in in allen möglichen Bedingungskombinationen Werte. Im Grunde sollte das Modell nicht genutzt werden! Die paarweisen Vergleiche sind ebenso nicht so nützlich, da nicht für alle Kombinationen Werte vorlagen (z.B. fehlte Repäsentation B, Platzier-Task und Abschluss 0).
+
+```{r}
+mod_quesi_task_c<- lmer(QUESI ~ Representation * Task * Abschluss + (1 | FBNUMMER), data = df)
+# R² nur für Representation
+R2_QUESI_task_c<- MuMIn::r.squaredGLMM(mod_quesi_task_b)[[1]]
+```
+
+#### Ergebnis Gesammodell {.tabset}
+
+##### Anova-Tabelle
+
+```{r}
+anova(mod_quesi_task_c)
+```
+
+
+##### Paarweise vergleiche {.tabset}
+
+###### Visuell
+```{r, fig.height=12}
+
+plot_grid(
+  emmeans(mod_quesi_task_c, specs = pairwise ~ Representation * Task*Abschluss)$emmeans %>% as.data.frame() %>% 
+    ggplot(., aes(x = Task, y = emmean, color = Representation)) +
+    facet_grid(Abschluss~.) +
+    geom_point(position = position_dodge(width = .2),
+               size = 2.5) +
+    geom_errorbar(aes(ymin = lower.CL, ymax = upper.CL),
+                  width = 0, position = position_dodge(width = .2),
+                  size = 1) + 
+    theme_bw() +
+    theme(legend.position = "bottom") +
+    labs(x = "Task",
+         y = "Geschätztes Randmittel\n(QUESI)",
+         title = "Paarweiser Vergleich der Repräsentation innerhalb der Tasks",
+         subtitle = "Modell: MBeanspruchung ~ Repräsentation x Task x Abschluss"),
+  
+  emmeans(mod_quesi_task_c, specs = pairwise ~ Representation * Task*Abschluss)$emmeans %>% as.data.frame() %>% 
+    ggplot(., aes(x = Representation, y = emmean, color = Task)) +
+    facet_grid(Abschluss ~ .) +
+    geom_point(position = position_dodge(width = .2),
+               size = 2.5) +
+    geom_errorbar(aes(ymin = lower.CL, ymax = upper.CL),
+                  width = 0, position = position_dodge(width = .2),
+                  size = 1) + 
+    theme_bw() +
+    theme(legend.position = "bottom") +
+    labs(x = "Repräsentation",
+         y = "Geschätztes Randmittel\n(QUESI)",
+         title = "Paarweiser Vergleich der Repräsentation innerhalb der Tasks",
+         subtitle = "Modell: QUESI ~ Representation x Abschluss"),
+  ncol = 1
+)
+
+```
+<br><font color = "grey"><font size = 2>*Anmerkung.* Darstellung der geschätzten Randmittel für MBeanspruchung für die Repräsentationen getrennt nach Abschluss (oben) und einmal für den Abschluss getrennt nach Repräsentation (unten). Dargestellt werden Mittelwert mit dem 95%-Konfidenzintervall als Fehlerbalken.</font></font><br><br>
+
+###### Gesamttabelle
+
+```{r}
+emmeans(mod_quesi_task_c, specs = pairwise ~ Representation * Task * Abschluss)$emmean
+```
+
+
+```{r}
+headerabove = htmltools::withTags(table(
+  class = 'display',
+  thead(
+    tr(
+      th(colspan = 3, 'Kontrastkombination1'),
+      th(rowspan = 2, ' '),
+      th(colspan = 3, 'Kontrastkombination2'),
+      th(colspan = 5, "paarweiser Vergleich")
+    ),
+    tr(
+      lapply(c('Rep', 'Task', 'Abschluss', 
+               'Rep', 'Task', "Abschluss",
+               "Differenz", "SE", "df", "t", "p"),
+             th),
+    )
+  )
+))
+
+
+emmeans(mod_quesi_task_c, specs = pairwise ~ Representation * Task * Abschluss)$contrasts %>% 
+  as.data.frame() %>% 
+  separate("contrast", into = c("lhs", "rhs"), sep = "-") %>% 
+  mutate_at(vars(lhs, rhs), function(x) {
+    gsub("[[:blank:]]$|^[[:blank:]]", "", x)
+  }) %>% 
+  separate("lhs", into = c("Rep1", "Task1", "Exp1"), sep = " ") %>%
+  separate("rhs", into = c("Rep2", "Task2", "Exp2"), sep = " ") %>% 
+  mutate(op = "~") %>% 
+  dplyr::select(Rep1, Task1, Exp1, op, everything()) %>% 
+  na.omit() %>% 
+  datatable(., 
+            caption = "Tabelle: Paarweise Vergleiche für das Modell QUESI ~ Repräsentation x Task x Abschluss",
+            rownames = F,
+            container = headerabove,
+            options = list(
+              lengthChange = T,
+              pageLength = 15,
+              dom = "tpB",
+              buttons = c("excel"),
+              order = list(list(11, "asc"))
+            )
+            ) %>% 
+  formatRound(., columns = 7:11, digits = 2) %>% 
+  formatRound(., columns = 12, digits = 5)
+```
+
+## 2.2 Effektivität
+
+### a) Repräsentation und Task {.tabset}
+
+#### Modellspezifikation
+
+```{r}
+mod_Effektivität_task_a<- lmer(Effektivität ~ Representation * Task + (1 | FBNUMMER), data = df)
+# R² nur für Representation
+R2_Effektivität_task_a_MF <- MuMIn::r.squaredGLMM(mod_Effektivität_task_a)[[1]]
+```
+
+#### Ergebnis Gesammodell {.tabset}
+
+##### Anova-Tabelle
+
+```{r}
+anova(mod_Effektivität_task_a)
+```
+
+
+##### Paarweise vergleiche {.tabset}
+
+```{r, fig.height=8}
+
+plot_grid(
+  emmeans(mod_Effektivität_task_a, specs = pairwise ~ Representation * Task)$emmeans %>% as.data.frame() %>% 
+    ggplot(., aes(x = Task, y = emmean, color = Representation)) +
+    geom_point(position = position_dodge(width = .2),
+               size = 2.5) +
+    geom_errorbar(aes(ymin = lower.CL, ymax = upper.CL),
+                  width = 0, position = position_dodge(width = .2),
+                  size = 1) + 
+    theme_bw() +
+    theme(legend.position = "bottom") +
+    labs(x = "Task",
+         y = "Geschätztes Randmittel\n(Effektivität)",
+         title = "Paarweiser Vergleich der Repräsentation innerhalb der Tasks",
+         subtitle = "Modell: MBeanspruchung ~ Repräsentation x Task"),
+  
+  emmeans(mod_Effektivität_task_a, specs = pairwise ~ Representation * Task)$emmeans %>% as.data.frame() %>% 
+    ggplot(., aes(x = Representation, y = emmean, color = Task)) +
+    geom_point(position = position_dodge(width = .2),
+               size = 2.5) +
+    geom_errorbar(aes(ymin = lower.CL, ymax = upper.CL),
+                  width = 0, position = position_dodge(width = .2),
+                  size = 1) + 
+    theme_bw() +
+    theme(legend.position = "bottom") +
+    labs(x = "Repräsentation",
+         y = "Geschätztes Randmittel\n(Effektivität)",
+         title = "Paarweiser Vergleich der Repräsentation innerhalb der Tasks",
+         subtitle = "Modell: Effektivität ~ Representation x Task"),
+  ncol = 1
+)
+
+```
+<br><font color = "grey"><font size = 2>*Anmerkung.* Darstellung der geschätzten Randmittel für MBeanspruchung für die Repräsentationen getrennt nach Abschluss (oben) und einmal für den Abschluss getrennt nach Repräsentation (unten). Dargestellt werden Mittelwert mit dem 95%-Konfidenzintervall als Fehlerbalken.</font></font><br><br>
+
+###### Repräsentation nach Task
+```{r}
+emmeans(mod_Effektivität_task_a, specs = pairwise ~ Representation | Task)
+```
+
+###### Task nach Repräsentation
+```{r}
+emmeans(mod_Effektivität_task_a, specs = pairwise ~ Task | Representation)
+```
+
+### b) Repräsentation und Task und Experten {.tabset}
+
+#### Modellspezifikation
+
+```{r}
+mod_Effektivität_task_b<- lmer(Effektivität ~ Representation * Task * EXPERTE + (1 | FBNUMMER), data = df)
+# R² nur für Representation
+R2_Effektivität_task_b<- MuMIn::r.squaredGLMM(mod_Effektivität_task_b)[[1]]
+```
+
+#### Ergebnis Gesammodell {.tabset}
+
+##### Anova-Tabelle
+
+```{r}
+anova(mod_Effektivität_task_b)
+```
+
+
+##### Paarweise vergleiche {.tabset}
+
+###### Visuell
+```{r, fig.height=8}
+
+plot_grid(
+  emmeans(mod_Effektivität_task_b, specs = pairwise ~ Representation * Task*EXPERTE)$emmeans %>% as.data.frame() %>% 
+    ggplot(., aes(x = Task, y = emmean, color = Representation)) +
+    facet_grid(EXPERTE~.) +
+    geom_point(position = position_dodge(width = .2),
+               size = 2.5) +
+    geom_errorbar(aes(ymin = lower.CL, ymax = upper.CL),
+                  width = 0, position = position_dodge(width = .2),
+                  size = 1) + 
+    theme_bw() +
+    theme(legend.position = "bottom") +
+    labs(x = "Task",
+         y = "Geschätztes Randmittel\n(Effektivität)",
+         title = "Paarweiser Vergleich der Repräsentation innerhalb der Tasks",
+         subtitle = "Modell: MBeanspruchung ~ Repräsentation x Task"),
+  
+  emmeans(mod_Effektivität_task_b, specs = pairwise ~ Representation * Task*EXPERTE)$emmeans %>% as.data.frame() %>% 
+    ggplot(., aes(x = Representation, y = emmean, color = Task)) +
+    facet_grid(EXPERTE ~ .) +
+    geom_point(position = position_dodge(width = .2),
+               size = 2.5) +
+    geom_errorbar(aes(ymin = lower.CL, ymax = upper.CL),
+                  width = 0, position = position_dodge(width = .2),
+                  size = 1) + 
+    theme_bw() +
+    theme(legend.position = "bottom") +
+    labs(x = "Repräsentation",
+         y = "Geschätztes Randmittel\n(Effektivität)",
+         title = "Paarweiser Vergleich der Repräsentation innerhalb der Tasks",
+         subtitle = "Modell: Effektivität ~ Representation x Task"),
+  ncol = 1
+)
+
+```
+<br><font color = "grey"><font size = 2>*Anmerkung.* Darstellung der geschätzten Randmittel für MBeanspruchung für die Repräsentationen getrennt nach Abschluss (oben) und einmal für den Abschluss getrennt nach Repräsentation (unten). Dargestellt werden Mittelwert mit dem 95%-Konfidenzintervall als Fehlerbalken.</font></font><br><br>
+
+###### Gesamttabelle
+```{r}
+emmeans(mod_Effektivität_task_b, specs = pairwise ~ Representation * Task * EXPERTE)$emmean
+```
+
+
+```{r}
+headerabove = htmltools::withTags(table(
+  class = 'display',
+  thead(
+    tr(
+      th(colspan = 3, 'Kontrastkombination1'),
+      th(rowspan = 2, ' '),
+      th(colspan = 3, 'Kontrastkombination2'),
+      th(colspan = 5, "paarweiser Vergleich")
+    ),
+    tr(
+      lapply(c('Rep', 'Task', 'Expert', 
+               'Rep', 'Task', "Expert",
+               "Differenz", "SE", "df", "t", "p"),
+             th),
+    )
+  )
+))
+
+
+emmeans(mod_Effektivität_task_b, specs = pairwise ~ Representation * Task * EXPERTE)$contrasts %>% 
+  as.data.frame() %>% 
+  separate("contrast", into = c("lhs", "rhs"), sep = "-") %>% 
+  mutate_at(vars(lhs, rhs), function(x) {
+    gsub("[[:blank:]]$|^[[:blank:]]", "", x)
+  }) %>% 
+  separate("lhs", into = c("Rep1", "Task1", "Exp1"), sep = " ") %>%
+  separate("rhs", into = c("Rep2", "Task2", "Exp2"), sep = " ") %>% 
+  mutate(op = "~") %>% 
+  dplyr::select(Rep1, Task1, Exp1, op, everything()) %>% 
+  datatable(., 
+            caption = "Tabelle: Paarweise Vergleiche für das Modell Effektivität ~ Repräsentation x Task x Expertenstatus",
+            rownames = F,
+            container = headerabove,
+            options = list(
+              lengthChange = T,
+              pageLength = 15,
+              dom = "tpB",
+              buttons = c("excel"),
+              order = list(list(11, "asc"))
+            )
+            ) %>% 
+  formatRound(., columns = 7:11, digits = 2) %>% 
+  formatRound(., columns = 12, digits = 5)
+```
+### c) Repräsentation und Task und Abschluss {.tabset}
+
+#### Modellspezifikation
+
+**WICHTIG:** Es gab in in allen möglichen Bedingungskombinationen Werte. Im Grunde sollte das Modell nicht genutzt werden! Die paarweisen Vergleiche sind ebenso nicht so nützlich, da nicht für alle Kombinationen Werte vorlagen (z.B. fehlte Repäsentation B, Platzier-Task und Abschluss 0).
+
+```{r}
+mod_Effektivität_task_c<- lmer(Effektivität ~ Representation * Task * Abschluss + (1 | FBNUMMER), data = df)
+# R² nur für Representation
+R2_Effektivität_task_c<- MuMIn::r.squaredGLMM(mod_Effektivität_task_b)[[1]]
+```
+
+#### Ergebnis Gesammodell {.tabset}
+
+##### Anova-Tabelle
+
+```{r}
+anova(mod_Effektivität_task_c)
+```
+
+
+##### Paarweise vergleiche {.tabset}
+
+###### Visuell
+```{r, fig.height=12}
+
+plot_grid(
+  emmeans(mod_Effektivität_task_c, specs = pairwise ~ Representation * Task*Abschluss)$emmeans %>% as.data.frame() %>% 
+    ggplot(., aes(x = Task, y = emmean, color = Representation)) +
+    facet_grid(Abschluss~.) +
+    geom_point(position = position_dodge(width = .2),
+               size = 2.5) +
+    geom_errorbar(aes(ymin = lower.CL, ymax = upper.CL),
+                  width = 0, position = position_dodge(width = .2),
+                  size = 1) + 
+    theme_bw() +
+    theme(legend.position = "bottom") +
+    labs(x = "Task",
+         y = "Geschätztes Randmittel\n(Effektivität)",
+         title = "Paarweiser Vergleich der Repräsentation innerhalb der Tasks",
+         subtitle = "Modell: MBeanspruchung ~ Repräsentation x Task x Abschluss"),
+  
+  emmeans(mod_Effektivität_task_c, specs = pairwise ~ Representation * Task*Abschluss)$emmeans %>% as.data.frame() %>% 
+    ggplot(., aes(x = Representation, y = emmean, color = Task)) +
+    facet_grid(Abschluss ~ .) +
+    geom_point(position = position_dodge(width = .2),
+               size = 2.5) +
+    geom_errorbar(aes(ymin = lower.CL, ymax = upper.CL),
+                  width = 0, position = position_dodge(width = .2),
+                  size = 1) + 
+    theme_bw() +
+    theme(legend.position = "bottom") +
+    labs(x = "Repräsentation",
+         y = "Geschätztes Randmittel\n(Effektivität)",
+         title = "Paarweiser Vergleich der Repräsentation innerhalb der Tasks",
+         subtitle = "Modell: Effektivität ~ Representation x Abschluss"),
+  ncol = 1
+)
+
+```
+<br><font color = "grey"><font size = 2>*Anmerkung.* Darstellung der geschätzten Randmittel für MBeanspruchung für die Repräsentationen getrennt nach Abschluss (oben) und einmal für den Abschluss getrennt nach Repräsentation (unten). Dargestellt werden Mittelwert mit dem 95%-Konfidenzintervall als Fehlerbalken.</font></font><br><br>
+
+###### Gesamttabelle
+
+```{r}
+emmeans(mod_Effektivität_task_c, specs = pairwise ~ Representation * Task * Abschluss)$emmean
+```
+
+
+```{r}
+headerabove = htmltools::withTags(table(
+  class = 'display',
+  thead(
+    tr(
+      th(colspan = 3, 'Kontrastkombination1'),
+      th(rowspan = 2, ' '),
+      th(colspan = 3, 'Kontrastkombination2'),
+      th(colspan = 5, "paarweiser Vergleich")
+    ),
+    tr(
+      lapply(c('Rep', 'Task', 'Abschluss', 
+               'Rep', 'Task', "Abschluss",
+               "Differenz", "SE", "df", "t", "p"),
+             th),
+    )
+  )
+))
+
+
+emmeans(mod_Effektivität_task_c, specs = pairwise ~ Representation * Task * Abschluss)$contrasts %>% 
+  as.data.frame() %>% 
+  separate("contrast", into = c("lhs", "rhs"), sep = "-") %>% 
+  mutate_at(vars(lhs, rhs), function(x) {
+    gsub("[[:blank:]]$|^[[:blank:]]", "", x)
+  }) %>% 
+  separate("lhs", into = c("Rep1", "Task1", "Exp1"), sep = " ") %>%
+  separate("rhs", into = c("Rep2", "Task2", "Exp2"), sep = " ") %>% 
+  mutate(op = "~") %>% 
+  dplyr::select(Rep1, Task1, Exp1, op, everything()) %>% 
+  na.omit() %>% 
+  datatable(., 
+            caption = "Tabelle: Paarweise Vergleiche für das Modell Effektivität ~ Repräsentation x Task x Abschluss",
+            rownames = F,
+            container = headerabove,
+            options = list(
+              lengthChange = T,
+              pageLength = 15,
+              dom = "tpB",
+              buttons = c("excel"),
+              order = list(list(11, "asc"))
+            )
+            ) %>% 
+  formatRound(., columns = 7:11, digits = 2) %>% 
+  formatRound(., columns = 12, digits = 5)
+```
+
+
