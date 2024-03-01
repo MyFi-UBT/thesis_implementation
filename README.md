@@ -8,68 +8,35 @@ Data generators are provided to enable the use of synthetical data for the evalu
 Furthermore, the user study results and the used evaluation script are provided.
 
 **Structure**
+
+The repository is structured as follows (depth level = 3).
+
 root/
 
-  - analysis
-   - ARM
-     - arm_optuna_results
-       - scenario1
-         - fpg/
-            - fpg_pruned/
-              - scen1_1_fpg_pruned.db
-              - scen1_2_fpg_pruned.db
-              - ...
-            - fpg_pure/
-              - scen1_1_fpg_pure.db
-              - ...
-          - garplus/
-            - garplus_pruned/
-              - ...
-            - garplus_pure/
-              - ...
-          - hycli/
-            - hycli_pruned/
-              - ...
-            - hycli_pure/
-              - ...
-          - quant
-            - quant_pruned/
-              - ...
-            - quant_pure/
-              - ...
-          - parameters.md 
-       - scenario2
-         - fpg/
-            - fpg_pruned/
-              - scen2_1_fpg_pruned.db
-              - scen2_2_fpg_pruned.db
-            - fpg_pure/
-              - scen2_1_fpg_pure.db
-              - ...
-          - garplus/
-            - garplus_pruned/
-              - ...
-            - garplus_pure/
-              - ...
-          - hycli/
-            - hycli_pruned/
-              - ...
-            - hycli_pure/
-              - ...
-          - parameters.md
-     - src
+  - analysis/
+   - ARM/
+     - arm_optuna_results/
+     - src/
      - readme.md 
-   - LIME
-     - LIME_basic
-       - src
+   - LIME/
+     - LIME_basic/
+       - src/
        - readme.md 
-     - LIME_robotics
-       - src
+     - LIME_robotics/
+       - src/
        - readme.md 
    - readme.md
-  - data_generator
-  - user_study
-
+  - data_generator/
+    - image_data/
+      - images_basic/
+      - images_robotics/ 
+    - structured_data/
+      - src/
+    - readme.md 
+  - user_study/
+    - descriptive_analysis/
+    - statistical_analysis/
+    - readme.md 
 
 **Overview**
 
