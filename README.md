@@ -1,6 +1,7 @@
 This repository contains the code referring to chapter 4 and 5 in the thesis of Myriel Fichtner.
-
+--
 **Structure**
+
 The folders contain subfolders as follows:
 
 analysis
