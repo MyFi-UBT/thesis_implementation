@@ -14,10 +14,10 @@ The repository is structured as follows (depth level = 3).
 root/
 
   - analysis/
-   -- ARM/
-     --- arm_optuna_results/
-     --- src/
-     --- readme.md 
+   - ARM/
+     - arm_optuna_results/
+     - src/
+     - readme.md 
    - LIME/
      - LIME_basic/
        - src/
