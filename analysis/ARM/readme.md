@@ -1,11 +1,11 @@
 ## About
-Here you will find the results of the experiments with the method based on Association Rule Mining. The content is published in [6].
+Here you will find the algorithms used in the experiments with the method based on Association Rule Mining as well as the results. The content of the subfolder "arm_optuna_results" is published in [6].
 
 ## Description
 Our approach evaluates different algorithms applied on the designed use cases: FP-Growth (fpg) [1], GARPlus (garplus) [2], HyperClique (hycli) [3], Quantitative Miner (quant) [4].
 
-The results of each algorithm [alg] can be found in the respective subfolder in the path /results/[alg].
-The version without pruning is stored in /results/[alg]/[alg]_pure, the one with pruning in /results/[alg]/[alg]_pruned.
+The results of each algorithm [alg] for each scenario [scen] can be found in the respective subfolder in the path /arm_optuna_results/[scen]/[alg].
+The version without pruning is stored in /arm_optuna_results/[scen]/[alg]/[alg]_pure, the one with pruning in /arm_optuna_results/[scen]/[alg]/[alg]_pruned.
 
 A set of parameters has to be defined for each algorithm, while we explore the parameter space with optuna [5] by using a grid search.
 
@@ -30,4 +30,4 @@ We want to thank Josef Würf from the University of Bayreuth for setting up the i
 
 [5] Akiba, Takuya, et al. "Optuna: A next-generation hyperparameter optimization framework." Proceedings of the 25th ACM SIGKDD international conference on knowledge discovery & data mining. 2019.
 
-[6] Myriel Fichtner and Stefan Jablonski (2024)." Applying Association Rules to Enhance Process Models through the Extraction of Relevant Process Details from Image Data.", Communications of the IBIMA, Vol. 2024, Article ID 172169, https://doi.org/10.5171/2024.172169. 2024.
+[6] Myriel Fichtner and Stefan Jablonski." Applying Association Rules to Enhance Process Models through the Extraction of Relevant Process Details from Image Data.", Communications of the IBIMA, Vol. 2024, Article ID 172169, https://doi.org/10.5171/2024.172169. 2024.
