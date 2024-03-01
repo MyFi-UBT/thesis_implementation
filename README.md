@@ -9,29 +9,12 @@ Furthermore, the user study results and the used evaluation script are provided.
 
 **Structure**
 
-The folders contain subfolders as follows:
-
-analysis
-
-- |_ARM
-
-- |_LIME
-
---  |_LIME_basic
-  
---  |_LIME_robotics
-
-data_generator
-|_image_data
-  |_images_basic
-  |_images_robotics
-|_structured_data
-
-user_study
-|_Statistische Analyse
-
-
-The analysis and data_generator folders refer to the experiments presented in chapter 4.
+The folders "analysis" and "data_generator" refer to the experiments presented in chapter 4.
 
 The user study folder refers to the experimental study presented in chapter 5. It contains the results of the descriptive (Deskriptive_Auswertung.xlsx) and statistical analysis (Folder: Statistische Analyse) of the collected data.
 Please note that all descriptions there are only provided in german.
+
+
+
+## Contact
+In case of questions please contact Myriel.Fichtner@uni-bayreuth.de.
