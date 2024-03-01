@@ -1,13 +1,14 @@
 ## About
-This folder contains the results of the user study conducted to evaluate the intuitive usability of process task annotations. The content is published in [1].
+This folder contains the materials and the results of the user study conducted to evaluate the intuitive usability of process task annotations. The content is published in [1].
 
 ## Description
-The findings are partitioned into descriptive and statistical analyses.
+The study findings are partitioned into descriptive and statistical analyses.
 The descriptive outcomes are documented in an xlsx-file ("Deskriptive_Auswertung.xlsx"), encompassing the dataset, calculations, and associated figures derived from it.
 The statistical results are encapsulated in an HTML-file ("Skript-Intuivitaet.html"), generated through the R project located in the same subfolder.
 
 ## Note
 Kindly be advised that the content is exclusively available in German. However, a summary of the study findings in English can be found in [1].
+However, the study materials are provided in Germand and English in the folder "materials".
 
 ## Acknowledgements
 We want to thank Matthias Sehlbrede for supporting the statistical analysis with R.
