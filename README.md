@@ -33,8 +33,8 @@ root/
      - descriptive_analysis/
         - Deskriptive_Auwertung.xlsx
      - materials/
- 	- process_models/
-	- questionnaires/
+        - process_models/
+        - questionnaires/
      - statistical_analysis/
         - ... 
      - readme.md 
