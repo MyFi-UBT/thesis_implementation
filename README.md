@@ -28,7 +28,7 @@ root/
         - images_robotics/ 
      - structured_data/
         - src/
-        - readme.md 
+     - readme.md 
   - user_study/
      - descriptive_analysis/
         - Deskriptive_Auwertung.xlsx
