@@ -5,9 +5,13 @@ This repository contains the code referring to chapter 4 and 5 in the thesis of 
 The folders contain subfolders as follows:
 
 analysis
+
 |_ARM
+
 |_LIME
+
   |_LIME_basic
+  
   |_LIME_robotics
 
 data_generator
