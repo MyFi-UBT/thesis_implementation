@@ -7,14 +7,11 @@ The code encompasses two methods to analyze relevant process details from execut
 Data generators are provided to enable the use of synthetical data for the evaluation.
 Furthermore, the user study results and the used evaluation script are provided.
 
-**Structure**
+**Overview**
 
 The folders "analysis" and "data_generator" refer to the experiments presented in chapter 4.
-
-The user study folder refers to the experimental study presented in chapter 5. It contains the results of the descriptive (Deskriptive_Auswertung.xlsx) and statistical analysis (Folder: Statistische Analyse) of the collected data.
-Please note that all descriptions there are only provided in german.
-
-
+The folder "user_study" contains the data and results of the experimental user study described in chapter 5.
+Within all folders and within the code files you will find further information regarding the implementation, e.g., how to use it, as well as references to the original work where the code is based on.
 
 ## Contact
 In case of questions please contact Myriel.Fichtner@uni-bayreuth.de.
