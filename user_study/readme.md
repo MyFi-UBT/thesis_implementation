@@ -3,8 +3,8 @@ This folder contains the results of the user study conducted to evaluate the int
 
 ## Description
 The findings are partitioned into descriptive and statistical analyses.
-The descriptive outcomes are documented in an xlsx file ("Deskriptive_Auswertung.xlsx"), encompassing the dataset, calculations, and associated figures derived from it.
-The statistical results are encapsulated in an HTML file ("Skript-Intuivitaet.html"), generated through the R project located in the same subfolder.
+The descriptive outcomes are documented in an xlsx-file ("Deskriptive_Auswertung.xlsx"), encompassing the dataset, calculations, and associated figures derived from it.
+The statistical results are encapsulated in an HTML-file ("Skript-Intuivitaet.html"), generated through the R project located in the same subfolder.
 
 ## Note
 Kindly be advised that the content is exclusively available in German. However, a summary of the study findings in English can be found in [1].
