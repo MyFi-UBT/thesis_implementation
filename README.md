@@ -6,13 +6,13 @@ The folders contain subfolders as follows:
 
 analysis
 
-|_ARM
+- |_ARM
 
-|_LIME
+- |_LIME
 
-  |_LIME_basic
+--  |_LIME_basic
   
-  |_LIME_robotics
+--  |_LIME_robotics
 
 data_generator
 |_image_data
