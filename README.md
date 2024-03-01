@@ -1,4 +1,4 @@
-Code for the thesis "Verbesserung von Prozessmodellen durch relevante Prozessdetails" from Myriel Fichtner.
+Code for the thesis "Verbesserung von Prozessmodellen durch relevante Prozessdetails" by Myriel Fichtner.
 --
 **Project Description**
 
