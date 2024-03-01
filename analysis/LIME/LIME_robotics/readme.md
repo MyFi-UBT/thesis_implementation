@@ -12,7 +12,7 @@ If PIP is installed, the required packages can be installed using the command li
 Configure and execute the corresponding "main.py" file to initiate the analysis procedure. Within this script, the scenario that has to be analyzed needs to be specified.
 
 ## Acknowledgements
-We want to thank Philipp Jahn and Carsten Scholle from the University of Bayreuth for supporting the evaluation of our work regarding "LIME_robotics" [2].
+We want to thank Philipp Jahn and Carsten Scholle from the University of Bayreuth for supporting the evaluation of our work.
 
 ## References
 [1] Ribeiro, Marco Tulio, Sameer Singh, and Carlos Guestrin. "" Why should i trust you?" Explaining the predictions of any classifier." Proceedings of the 22nd ACM SIGKDD international conference on knowledge discovery and data mining. 2016.
