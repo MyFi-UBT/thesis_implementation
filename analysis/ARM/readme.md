@@ -1,15 +1,21 @@
 ## About
 Here you will find the algorithms used in the experiments with the method based on Association Rule Mining as well as the results. The content of the subfolder "arm_optuna_results" is published in [6].
 
+NOTE: The execution of the analysis code necessitates the availability of data created by the data generators located in ./data_generator/structured_data/. It is imperative to generate this data before executing the analysis code.
+
 ## Description
 Our approach evaluates different algorithms applied on the designed use cases: FP-Growth (fpg) [1], GARPlus (garplus) [2], HyperClique (hycli) [3], Quantitative Miner (quant) [4].
-
 The results of each algorithm [alg] for each scenario [scen] can be found in the respective subfolder in the path /arm_optuna_results/[scen]/[alg].
 The version without pruning is stored in /arm_optuna_results/[scen]/[alg]/[alg]_pure, the one with pruning in /arm_optuna_results/[scen]/[alg]/[alg]_pruned.
 
-A set of parameters has to be defined for each algorithm, while we explore the parameter space with optuna [5] by using a grid search.
-
-The search spaces defined for our experiments are stored in the parameters.md file in the folders for the respective use cases.
+## Installation Guide
+The Python source code and the utilized packages are located in /src.
+We recommend opening this folder in a Python IDE such as PyCharm.
+If PIP is installed, the required packages can be installed using the command line with "pip install -r requirements.txt".
+To compute the association rules for a determined hyper parameter set, execute and configure "compute_rules.py" and set the hyperparameters in "parameter_scripts/parameters.json"
+To explore the hyper parameter space with optuna [5], the search space of each parameter has to be defined in "hyperparameter_definition.py".
+Then, according to the scenario [scenario], the file "hyperparameter_optimization_[scenario]" has to be executed.
+The search spaces defined for our experiments are stored in the file parameters.md in /arm_optuna_results/[scenario].
 
 ## Opening of .db file
 The results of the grid search are stored in .db files.
