@@ -18,18 +18,18 @@ root/
        - arm_optuna_results/
        - src/
        - readme.md 
-   - LIME/
-      - LIME_basic/
-         - src/
-         - readme.md 
+     - LIME/
+        - LIME_basic/
+           - src/
+           - readme.md 
      - LIME_robotics/
        - src/
        - readme.md 
-   - readme.md
+     - readme.md
   - data_generator/
-    - image_data/
-      - images_basic/
-      - images_robotics/ 
+     - image_data/
+        - images_basic/
+        - images_robotics/ 
     - structured_data/
       - src/
     - readme.md 
