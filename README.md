@@ -5,7 +5,7 @@ Code for the thesis "Verbesserung von Prozessmodellen durch relevante Prozessdet
 This repository contains the code referring to chapter 4, 5 and 6 of the thesis "Verbesserung von Prozessmodellen durch relevante Prozessdetails" by Myriel Fichtner (2024).
 The code encompasses two methods to analyze relevant process details from execution data. The implemented methods use the techniques association rule mining (ARM) and Local-Interpretable Model Agnostic Explanations (LIME).
 Data generators are provided to enable the use of synthetical data for the evaluation.
-Furthermore, the user study results and the used evaluation script are provided.
+Furthermore, the user study results and the used evaluation script as well as study materials are provided.
 
 ## Structure
 
